@@ -70,12 +70,16 @@ def cmd_report_top(args):
     mode   = args.mode
     limit  = args.limit
     period = args.period
+    date_str = getattr(args, 'date', None)
 
     PERIOD_LABELS = {"day": "Hoy", "week": "Esta Semana", "month": "Este Mes", None: "Histórico"}
-    period_label = PERIOD_LABELS.get(period, "Histórico")
+    if date_str:
+        period_label = date_str
+    else:
+        period_label = PERIOD_LABELS.get(period, "Histórico")
 
     if mode == "kills":
-        players = get_player_totals(limit=limit, period=period)
+        players = get_player_totals(limit=limit, period=period, date_str=date_str)
         if not players:
             print("⚠️  No hay jugadores en la DB.")
             return
@@ -89,7 +93,7 @@ def cmd_report_top(args):
             send_top_players(players, period_label=period_label)
 
     elif mode == "hours":
-        players = get_top_hours(limit=limit, period=period)
+        players = get_top_hours(limit=limit, period=period, date_str=date_str)
         if not players:
             print("⚠️  No hay datos de tiempo jugado.")
             return
@@ -103,7 +107,7 @@ def cmd_report_top(args):
             send_top_hours(players, period_label=period_label)
 
     elif mode == "kd":
-        players = get_top_kd(limit=limit, min_matches=args.min_matches, period=period)
+        players = get_top_kd(limit=limit, min_matches=args.min_matches, period=period, date_str=date_str)
         if not players:
             print(f"⚠️  No hay jugadores con {args.min_matches}+ partidas.")
             return
@@ -117,7 +121,7 @@ def cmd_report_top(args):
             send_top_kd(players, min_matches=args.min_matches, period_label=period_label)
 
     elif mode == "efficiency":
-        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours, period=period)
+        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours, period=period, date_str=date_str)
         if not players:
             print(f"⚠️  No hay jugadores con {args.min_hours}+ horas jugadas.")
             return
@@ -204,6 +208,8 @@ def main():
         default=None,
         help="Período: day=hoy | week=7 días | month=30 días | (sin valor)=histórico",
     )
+    p_top.add_argument("--date", type=str, default=None,
+                       help="Fecha específica en formato YYYY-MM-DD (ej: 2026-06-10)")
     p_top.add_argument("--min-matches", type=int, default=5,
                        help="Mínimo de partidas para el ranking KD (default: 10)")
     p_top.add_argument("--min-hours", type=float, default=2.0,

@@ -133,6 +133,41 @@ def upsert_match_player_stats(stats: dict) -> None:
 
 
 # ──────────────────────────────────────────────
+# Filtros de período
+# ──────────────────────────────────────────────
+
+def _period_filter(period: str | None) -> tuple[str, list]:
+    """
+    Filtra por período relativo.
+    period: 'day' | 'week' | 'month' | None (historial completo)
+    """
+    if not period:
+        return "", []
+    if period == "day":
+        # Desde medianoche UY de hoy
+        clause = "AND m.start_time >= date_trunc('day', NOW() AT TIME ZONE 'America/Montevideo') AT TIME ZONE 'America/Montevideo'"
+        return clause, []
+    intervals = {"week": "7 days", "month": "30 days"}
+    interval = intervals.get(period, "7 days")
+    clause = "AND m.start_time >= NOW() - INTERVAL %s"
+    return clause, [interval]
+
+
+def _date_filter(date_str: str | None) -> tuple[str, list]:
+    """
+    Filtra por fecha calendario UY específica (YYYY-MM-DD).
+    Toma desde medianoche hasta medianoche siguiente en hora Uruguay.
+    """
+    if not date_str:
+        return "", []
+    clause = """
+        AND m.start_time >= (%s::date) AT TIME ZONE 'America/Montevideo'
+        AND m.start_time <  (%s::date + INTERVAL '1 day') AT TIME ZONE 'America/Montevideo'
+    """
+    return clause, [date_str, date_str]
+
+
+# ──────────────────────────────────────────────
 # Queries de lectura
 # ──────────────────────────────────────────────
 
@@ -142,28 +177,12 @@ def get_match_ids_in_db() -> set[int]:
         return {row[0] for row in cur.fetchall()}
 
 
-def _period_filter(period: str | None) -> tuple[str, list]:
-    """
-    Devuelve (cláusula SQL, parámetros) para filtrar por período.
-    period: 'day' | 'week' | 'month' | None (todo el historial)
-    Las fechas se calculan en UTC-3 (Uruguay).
-    """
-    if not period:
-        return "", []
-    if period == "day":
-        # Día calendario en Uruguay: desde medianoche UY de hoy
-        # start_time está en UTC, medianoche UY = UTC+3h
-        clause = "AND m.start_time >= date_trunc('day', NOW() AT TIME ZONE 'America/Montevideo') AT TIME ZONE 'America/Montevideo'"
-        return clause, []
-    intervals = {"week": "7 days", "month": "30 days"}
-    interval = intervals.get(period, "7 days")
-    clause = "AND m.start_time >= NOW() - INTERVAL %s"
-    return clause, [interval]
-
-
-def get_player_totals(limit: int = 10, period: str | None = None) -> list[dict]:
+def get_player_totals(limit: int = 10, period: str | None = None, date_str: str | None = None) -> list[dict]:
     """Top jugadores por kills totales."""
-    period_clause, period_params = _period_filter(period)
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
     sql = f"""
         SELECT
             p.player_id, p.name, p.country,
@@ -176,19 +195,22 @@ def get_player_totals(limit: int = 10, period: str | None = None) -> list[dict]:
         FROM match_player_stats mps
         JOIN players p USING (player_id)
         JOIN matches m USING (match_id)
-        WHERE TRUE {period_clause}
+        WHERE TRUE {extra_clause}
         GROUP BY p.player_id, p.name, p.country
         ORDER BY total_kills DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, period_params + [limit])
+        cur.execute(sql, extra_params + [limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_hours(limit: int = 10, period: str | None = None) -> list[dict]:
+def get_top_hours(limit: int = 10, period: str | None = None, date_str: str | None = None) -> list[dict]:
     """Top jugadores por horas jugadas."""
-    period_clause, period_params = _period_filter(period)
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
     sql = f"""
         SELECT
             p.name, p.country,
@@ -200,20 +222,23 @@ def get_top_hours(limit: int = 10, period: str | None = None) -> list[dict]:
         FROM match_player_stats mps
         JOIN players p USING (player_id)
         JOIN matches m USING (match_id)
-        WHERE TRUE {period_clause}
+        WHERE TRUE {extra_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING SUM(mps.time_seconds) > 0
         ORDER BY total_seconds DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, period_params + [limit])
+        cur.execute(sql, extra_params + [limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_kd(limit: int = 10, min_matches: int = 5, period: str | None = None) -> list[dict]:
+def get_top_kd(limit: int = 10, min_matches: int = 5, period: str | None = None, date_str: str | None = None) -> list[dict]:
     """Top jugadores por KD con mínimo de partidas."""
-    period_clause, period_params = _period_filter(period)
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
     sql = f"""
         SELECT
             p.name, p.country,
@@ -226,20 +251,23 @@ def get_top_kd(limit: int = 10, min_matches: int = 5, period: str | None = None)
         FROM match_player_stats mps
         JOIN players p USING (player_id)
         JOIN matches m USING (match_id)
-        WHERE TRUE {period_clause}
+        WHERE TRUE {extra_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING COUNT(DISTINCT mps.match_id) >= %s
         ORDER BY kd_ratio DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, period_params + [min_matches, limit])
+        cur.execute(sql, extra_params + [min_matches, limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_kills_per_hour(limit: int = 10, min_hours: float = 1.0, period: str | None = None) -> list[dict]:
+def get_top_kills_per_hour(limit: int = 10, min_hours: float = 1.0, period: str | None = None, date_str: str | None = None) -> list[dict]:
     """Top jugadores por kills/hora."""
-    period_clause, period_params = _period_filter(period)
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
     sql = f"""
         SELECT
             p.name, p.country,
@@ -250,14 +278,14 @@ def get_top_kills_per_hour(limit: int = 10, min_hours: float = 1.0, period: str 
         FROM match_player_stats mps
         JOIN players p USING (player_id)
         JOIN matches m USING (match_id)
-        WHERE TRUE {period_clause}
+        WHERE TRUE {extra_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING SUM(mps.time_seconds) >= %s * 3600
         ORDER BY kills_per_hour DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, period_params + [min_hours, limit])
+        cur.execute(sql, extra_params + [min_hours, limit])
         return [dict(row) for row in cur.fetchall()]
 
 
