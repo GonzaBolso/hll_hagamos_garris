@@ -151,6 +151,27 @@ def cmd_post_match(args):
 # CLI
 # ──────────────────────────────────────────────
 
+def cmd_worker(_args):
+    """Loop infinito: corre collect cada hora."""
+    import time
+    from datetime import datetime, timezone, timedelta
+    TZ_UY = timezone(timedelta(hours=-3))
+
+    logger.info("Worker iniciado. Ciclo cada 60 minutos.")
+    while True:
+        now = datetime.now(TZ_UY)
+        logger.info("Ciclo worker — %s", now.strftime("%H:%M UY"))
+
+        class _FakeArgs:
+            pages = None
+            notify = True
+
+        cmd_collect(_FakeArgs())
+
+        logger.info("Próximo ciclo en 60 minutos.")
+        time.sleep(60 * 60)
+
+
 def main():
     parser = argparse.ArgumentParser(description="HLL Stats CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -179,6 +200,9 @@ def main():
                        help="Mínimo de horas para el ranking efficiency (default: 2)")
     p_top.add_argument("--notify", action="store_true")
 
+    # worker
+    sub.add_parser("worker", help="Loop infinito: collect cada hora")
+
     # post-match
     p_pm = sub.add_parser("post-match", help="Postea resumen de una partida")
     p_pm.add_argument("match_id", type=int)
@@ -189,6 +213,7 @@ def main():
         "collect":    cmd_collect,
         "report-top": cmd_report_top,
         "post-match": cmd_post_match,
+        "worker":     cmd_worker,
     }
     commands[args.command](args)
 
