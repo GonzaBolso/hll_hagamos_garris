@@ -1,1 +1,1 @@
-worker: python main.py init-db && python main.py collect --pages 5 --notify
+worker: python main.py init-db && python main.py collect --notify

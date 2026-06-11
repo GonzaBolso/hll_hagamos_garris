@@ -3,13 +3,12 @@
 main.py  –  Punto de entrada de HLL Stats
 Uso:
     python main.py init-db
-    python main.py collect [--pages N]
-    python main.py report-top [--limit N]
+    python main.py collect [--pages N] [--notify]
+    python main.py report-top [--limit N] [--mode kills|hours|kd|efficiency] [--notify]
     python main.py post-match <match_id>
 """
 import argparse
 import logging
-import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,7 +29,7 @@ def cmd_collect(args):
     from discord.webhook import send_collection_report
 
     pages = args.pages
-    logger.info("Iniciando recolección — %s páginas", pages or "todas")
+    logger.info("Iniciando recolección — %s", f"{pages} páginas máx." if pages else "modo incremental")
     counters = collect_history(max_pages=pages)
 
     print(
@@ -47,26 +46,73 @@ def cmd_collect(args):
 
 
 def cmd_report_top(args):
-    from db.database import get_player_totals
-    from discord.webhook import send_top_players
+    from db.database import (
+        get_player_totals, get_top_hours,
+        get_top_kd, get_top_kills_per_hour,
+    )
+    from discord.webhook import send_top_players, send_top_hours, send_top_kd, send_top_efficiency
 
-    players = get_player_totals(limit=args.limit)
-    if not players:
-        print("⚠️  No hay jugadores en la DB. Corré 'collect' primero.")
-        return
+    mode  = args.mode
+    limit = args.limit
 
-    # Mostrar en consola
-    print(f"\n{'Pos':<4} {'Jugador':<25} {'Kills':>6} {'Deaths':>7} {'KD':>6} {'Partidas':>9}")
-    print("-" * 65)
-    for i, p in enumerate(players, 1):
-        print(
-            f"{i:<4} {p['name']:<25} {p['total_kills']:>6} "
-            f"{p['total_deaths']:>7} {float(p['overall_kd'] or 0):>6.2f} {p['matches_played']:>9}"
-        )
+    if mode == "kills":
+        players = get_player_totals(limit=limit)
+        if not players:
+            print("⚠️  No hay jugadores en la DB.")
+            return
+        print(f"\n🏆 TOP {limit} — KILLS TOTALES")
+        print(f"{'#':<4} {'Jugador':<25} {'Kills':>7} {'Deaths':>7} {'KD':>6} {'Partidas':>9}")
+        print("─" * 65)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {p['total_kills']:>7} "
+                  f"{p['total_deaths']:>7} {float(p['overall_kd'] or 0):>6.2f} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_players(players)
+
+    elif mode == "hours":
+        players = get_top_hours(limit=limit)
+        if not players:
+            print("⚠️  No hay datos de tiempo jugado.")
+            return
+        print(f"\n⏱️  TOP {limit} — HORAS JUGADAS")
+        print(f"{'#':<4} {'Jugador':<25} {'Horas':>7} {'Kills':>7} {'Partidas':>9}")
+        print("─" * 60)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {float(p['total_hours']):>7.1f} "
+                  f"{p['total_kills']:>7} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_hours(players)
+
+    elif mode == "kd":
+        players = get_top_kd(limit=limit, min_matches=args.min_matches)
+        if not players:
+            print(f"⚠️  No hay jugadores con {args.min_matches}+ partidas.")
+            return
+        print(f"\n⚔️  TOP {limit} — MEJOR KD (mín. {args.min_matches} partidas)")
+        print(f"{'#':<4} {'Jugador':<25} {'KD':>6} {'Kills':>7} {'Deaths':>7} {'Partidas':>9}")
+        print("─" * 65)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {float(p['kd_ratio']):>6.2f} "
+                  f"{p['total_kills']:>7} {p['total_deaths']:>7} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_kd(players, min_matches=args.min_matches)
+
+    elif mode == "efficiency":
+        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours)
+        if not players:
+            print(f"⚠️  No hay jugadores con {args.min_hours}+ horas jugadas.")
+            return
+        print(f"\n🎯 TOP {limit} — KILLS POR HORA (mín. {args.min_hours}h)")
+        print(f"{'#':<4} {'Jugador':<25} {'K/h':>6} {'Kills':>7} {'Horas':>7} {'Partidas':>9}")
+        print("─" * 65)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {float(p['kills_per_hour']):>6.2f} "
+                  f"{p['total_kills']:>7} {float(p['total_hours']):>7.1f} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_efficiency(players, min_hours=args.min_hours)
 
     if args.notify:
-        send_top_players(players)
-        print("\n📣 Ranking enviado a Discord.")
+        print("📣 Ranking enviado a Discord.")
 
 
 def cmd_post_match(args):
@@ -100,17 +146,26 @@ def main():
     # collect
     p_collect = sub.add_parser("collect", help="Descarga historial y guarda en DB")
     p_collect.add_argument("--pages", type=int, default=None,
-                           help="Cantidad de páginas a procesar (default: settings.HISTORY_PAGES)")
-    p_collect.add_argument("--notify", action="store_true",
-                           help="Enviar reporte a Discord al terminar")
+                           help="Límite de páginas (default: incremental hasta no haber novedades)")
+    p_collect.add_argument("--notify", action="store_true")
 
     # report-top
-    p_top = sub.add_parser("report-top", help="Muestra / postea top jugadores")
+    p_top = sub.add_parser("report-top", help="Muestra / postea rankings")
     p_top.add_argument("--limit", type=int, default=10)
+    p_top.add_argument(
+        "--mode",
+        choices=["kills", "hours", "kd", "efficiency"],
+        default="kills",
+        help="kills=total kills | hours=horas jugadas | kd=mejor KD | efficiency=kills/hora",
+    )
+    p_top.add_argument("--min-matches", type=int, default=10,
+                       help="Mínimo de partidas para el ranking KD (default: 10)")
+    p_top.add_argument("--min-hours", type=float, default=2.0,
+                       help="Mínimo de horas para el ranking efficiency (default: 2)")
     p_top.add_argument("--notify", action="store_true")
 
     # post-match
-    p_pm = sub.add_parser("post-match", help="Postea resumen de una partida específica")
+    p_pm = sub.add_parser("post-match", help="Postea resumen de una partida")
     p_pm.add_argument("match_id", type=int)
 
     args = parser.parse_args()

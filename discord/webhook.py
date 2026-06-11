@@ -3,7 +3,6 @@ discord/webhook.py  –  Envía embeds a Discord via webhook
 """
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 import requests
 
@@ -12,10 +11,13 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 COLORS = {
-    "allied": 0x3A7EBF,    # azul aliados
-    "axis":   0xBF3A3A,    # rojo eje
-    "draw":   0x888888,    # gris empate
-    "info":   0x5865F2,    # blanco discord
+    "allied": 0x3A7EBF,
+    "axis":   0xBF3A3A,
+    "draw":   0x888888,
+    "info":   0x5865F2,
+    "gold":   0xF1C40F,
+    "green":  0x2ECC71,
+    "purple": 0x9B59B6,
 }
 
 TEAM_LABELS = {
@@ -43,11 +45,7 @@ def _post(payload: dict) -> bool:
         logger.warning("DISCORD_WEBHOOK_URL no configurada. Mensaje no enviado.")
         return False
     try:
-        resp = requests.post(
-            settings.DISCORD_WEBHOOK_URL,
-            json=payload,
-            timeout=10,
-        )
+        resp = requests.post(settings.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         resp.raise_for_status()
         return True
     except requests.RequestException as e:
@@ -62,145 +60,121 @@ def _format_duration(minutes: float | None) -> str:
     return f"{h}h {m}m" if h else f"{m}m"
 
 
-def _weapon_label(weapon: str, kills: int) -> str:
-    icon = WEAPON_ICONS.get(weapon, "🔸")
-    return f"{icon} {weapon}: **{kills}**"
+def _country_flag(country: str | None) -> str:
+    if country and len(country) == 2:
+        return f" :flag_{country.lower()}:"
+    return ""
+
+
+def _medals(i: int) -> str:
+    return ["🥇", "🥈", "🥉"][i] if i < 3 else "🔹"
 
 
 # ──────────────────────────────────────────────
-# Embeds
+# Embeds existentes
 # ──────────────────────────────────────────────
 
 def send_match_summary(match: dict, top_players: list[dict]) -> bool:
-    """
-    Postea un resumen de partida en Discord.
-
-    match debe tener: map_name, game_mode, start_time, duration_minutes,
-                      score_allied, score_axis, winner, players_count, total_kills
-    top_players: lista con kills, deaths, player_name, team_side, weapons
-    """
     winner     = match.get("winner", "draw")
     color      = COLORS.get(winner, COLORS["info"])
     winner_lbl = TEAM_LABELS.get(winner, "Empate")
     duration   = _format_duration(match.get("duration_minutes"))
 
     start = match.get("start_time")
-    if isinstance(start, datetime):
-        ts = f"<t:{int(start.timestamp())}:F>"
-    else:
-        ts = str(start or "?")
+    ts = f"<t:{int(start.timestamp())}:F>" if isinstance(start, datetime) else str(start or "?")
 
-    # Campos del embed
     fields = [
-        {
-            "name": "📋 Mapa",
-            "value": f"{match.get('map_name','?')} — *{match.get('game_mode','?')}*",
-            "inline": True,
-        },
-        {
-            "name": "⏱️ Duración",
-            "value": duration,
-            "inline": True,
-        },
-        {
-            "name": "🏆 Resultado",
-            "value": (
-                f"{winner_lbl}\n"
-                f"🟦 {match.get('score_allied',0)}  —  "
-                f"{match.get('score_axis',0)} 🟥"
-            ),
-            "inline": False,
-        },
-        {
-            "name": "👥 Jugadores / Bajas",
-            "value": f"{match.get('players_count',0)} jugadores · {match.get('total_kills',0)} kills totales",
-            "inline": False,
-        },
+        {"name": "📋 Mapa",     "value": f"{match.get('map_name','?')} — *{match.get('game_mode','?')}*", "inline": True},
+        {"name": "⏱️ Duración", "value": duration, "inline": True},
+        {"name": "🏆 Resultado", "value": f"{winner_lbl}\n🟦 {match.get('score_allied',0)}  —  {match.get('score_axis',0)} 🟥", "inline": False},
+        {"name": "👥 Jugadores / Bajas", "value": f"{match.get('players_count',0)} jugadores · {match.get('total_kills',0)} kills totales", "inline": False},
     ]
 
-    # Top jugadores
     if top_players:
         lines = []
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
         for i, p in enumerate(top_players[:5]):
-            medal  = medals[i] if i < len(medals) else "•"
             side   = "🟦" if p.get("team_side") == "allied" else "🟥" if p.get("team_side") == "axis" else "⬜"
             kd     = p.get("kill_death_ratio", 0)
-            weapons: dict = p.get("weapons") or {}
+            weapons = p.get("weapons") or {}
             top_weapon = max(weapons, key=weapons.get, default=None) if weapons else None
             gun_txt = f" · {WEAPON_ICONS.get(top_weapon,'🔫')} {top_weapon}" if top_weapon else ""
-            lines.append(
-                f"{medal} {side} **{p['player_name']}** — "
-                f"{p.get('kills',0)}K/{p.get('deaths',0)}D (KD {kd:.2f}){gun_txt}"
-            )
-        fields.append({
-            "name": "🎖️ Top Jugadores",
-            "value": "\n".join(lines),
-            "inline": False,
-        })
+            lines.append(f"{_medals(i)} {side} **{p['player_name']}** — {p.get('kills',0)}K/{p.get('deaths',0)}D (KD {kd:.2f}){gun_txt}")
+        fields.append({"name": "🎖️ Top Jugadores", "value": "\n".join(lines), "inline": False})
 
-    payload = {
-        "embeds": [
-            {
-                "title": f"📊 Resumen de Partida",
-                "description": f"🗓️ {ts}",
-                "color": color,
-                "fields": fields,
-                "footer": {"text": "[LATAM] Hagamos Garris · HLL Stats"},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        ]
-    }
-
+    payload = {"embeds": [{"title": "📊 Resumen de Partida", "description": f"🗓️ {ts}", "color": color,
+                            "fields": fields, "footer": {"text": "[LATAM] Hagamos Garris · HLL Stats"},
+                            "timestamp": datetime.now(timezone.utc).isoformat()}]}
     return _post(payload)
 
 
 def send_collection_report(counters: dict) -> bool:
-    """Postea un reporte rápido de la última recolección."""
-    payload = {
-        "embeds": [
-            {
-                "title": "🔄 Recolección de historial completada",
-                "color": COLORS["info"],
+    payload = {"embeds": [{"title": "🔄 Recolección de historial completada", "color": COLORS["info"],
                 "fields": [
-                    {"name": "✅ Partidas nuevas",     "value": str(counters.get("new_matches", 0)),       "inline": True},
-                    {"name": "⏭️ Ya existían",          "value": str(counters.get("skipped", 0)),           "inline": True},
-                    {"name": "👤 Players actualizados", "value": str(counters.get("players_upserted", 0)),  "inline": True},
-                    {"name": "❌ Errores",              "value": str(counters.get("errors", 0)),             "inline": True},
+                    {"name": "✅ Partidas nuevas",     "value": str(counters.get("new_matches", 0)),      "inline": True},
+                    {"name": "⏭️ Ya existían",          "value": str(counters.get("skipped", 0)),          "inline": True},
+                    {"name": "👤 Players actualizados", "value": str(counters.get("players_upserted", 0)), "inline": True},
+                    {"name": "❌ Errores",              "value": str(counters.get("errors", 0)),            "inline": True},
                 ],
-                "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        ]
-    }
+                "footer": {"text": "HLL Stats Bot"}, "timestamp": datetime.now(timezone.utc).isoformat()}]}
     return _post(payload)
 
 
-def send_top_players(players: list[dict], title: str = "🏅 Top Jugadores del Servidor") -> bool:
-    """Postea el ranking global de jugadores."""
+def send_top_players(players: list[dict]) -> bool:
+    """Top kills totales."""
     if not players:
         return False
-
     lines = []
-    medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 20
     for i, p in enumerate(players):
-        kd      = p.get("overall_kd") or 0
-        country = f" :flag_{p['country'].lower()}:" if p.get("country") and len(p["country"]) == 2 else ""
-        lines.append(
-            f"{medals[i]}{country} **{p['name']}** — "
-            f"{p.get('total_kills',0)}K/{p.get('total_deaths',0)}D "
-            f"· KD **{kd}** · {p.get('matches_played',0)} partidas"
-        )
+        kd = p.get("overall_kd") or 0
+        lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
+                     f"{p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · KD **{kd}** · {p.get('matches_played',0)} partidas")
+    payload = {"embeds": [{"title": "💀 Top Kills Totales", "description": "\n".join(lines),
+                "color": COLORS["info"], "footer": {"text": "HLL Stats Bot"},
+                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+    return _post(payload)
 
-    payload = {
-        "embeds": [
-            {
-                "title": title,
-                "description": "\n".join(lines),
-                "color": COLORS["info"],
-                "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        ]
-    }
+
+# ──────────────────────────────────────────────
+# Nuevos rankings
+# ──────────────────────────────────────────────
+
+def send_top_hours(players: list[dict]) -> bool:
+    """Top horas jugadas."""
+    if not players:
+        return False
+    lines = []
+    for i, p in enumerate(players):
+        lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
+                     f"⏱️ **{p.get('total_hours',0)}h** · {p.get('total_kills',0)} kills · {p.get('matches_played',0)} partidas")
+    payload = {"embeds": [{"title": "⏱️ Top Horas Jugadas", "description": "\n".join(lines),
+                "color": COLORS["green"], "footer": {"text": "HLL Stats Bot"},
+                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+    return _post(payload)
+
+
+def send_top_kd(players: list[dict], min_matches: int = 10) -> bool:
+    """Top KD con mínimo de partidas."""
+    if not players:
+        return False
+    lines = []
+    for i, p in enumerate(players):
+        lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
+                     f"KD **{p.get('kd_ratio',0)}** · {p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · {p.get('matches_played',0)} partidas")
+    payload = {"embeds": [{"title": f"⚔️ Top KD (mín. {min_matches} partidas)", "description": "\n".join(lines),
+                "color": COLORS["gold"], "footer": {"text": "HLL Stats Bot"},
+                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+    return _post(payload)
+
+
+def send_top_efficiency(players: list[dict], min_hours: float = 2.0) -> bool:
+    """Top kills por hora — el combo que mencionaste."""
+    if not players:
+        return False
+    lines = []
+    for i, p in enumerate(players):
+        lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
+                     f"🎯 **{p.get('kills_per_hour',0)} K/h** · {p.get('total_kills',0)} kills en {p.get('total_hours',0)}h · {p.get('matches_played',0)} partidas")
+    payload = {"embeds": [{"title": f"🎯 Top Eficiencia — Kills/Hora (mín. {min_hours}h)", "description": "\n".join(lines),
+                "color": COLORS["purple"], "footer": {"text": "HLL Stats Bot"},
+                "timestamp": datetime.now(timezone.utc).isoformat()}]}
     return _post(payload)

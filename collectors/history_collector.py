@@ -1,10 +1,10 @@
 """
 collectors/history_collector.py
 Descarga el historial de partidas y persiste en PostgreSQL.
+Modo incremental: para cuando encuentra IDs que ya están en la DB.
 """
 import json
 import logging
-from datetime import datetime
 from typing import Any
 
 from collectors.api_client import get_scoreboard_maps, get_map_scoreboard
@@ -39,7 +39,6 @@ def _parse_match(raw: dict) -> dict:
 
 
 def _parse_player_stats(raw: dict, match_id: int) -> dict:
-    """Convierte un registro de player_stats de la API al formato de la DB."""
     shortest = raw.get("shortest_life_secs", 0)
     if shortest == 9999:
         shortest = 0
@@ -79,7 +78,6 @@ def _parse_player_stats(raw: dict, match_id: int) -> dict:
 
 
 def _parse_player_identity(raw: dict) -> tuple[str, str | None, str | None, int | None]:
-    """Extrae player_id, steam_name, country, level."""
     steam_info = raw.get("steaminfo") or {}
     profile    = steam_info.get("profile") or {}
     steam_name = profile.get("personaname")
@@ -95,33 +93,42 @@ def _parse_player_identity(raw: dict) -> tuple[str, str | None, str | None, int 
 def collect_history(max_pages: int | None = None) -> dict[str, int]:
     """
     Descarga el historial de partidas y lo guarda en la DB.
+    Modo incremental: si encuentra una página donde TODAS las partidas
+    ya están en la DB, para (no hay más novedades).
 
     Parámetros:
-        max_pages: límite de páginas a procesar (None = todas disponibles)
+        max_pages: límite de páginas (None = sin límite, solo para hasta
+                   encontrar partidas conocidas)
 
     Retorna un dict con contadores: new_matches, skipped, players_upserted, errors
     """
-    max_pages    = max_pages or settings.HISTORY_PAGES
-    page_size    = settings.PAGE_SIZE
-    known_ids    = get_match_ids_in_db()
-    counters     = {"new_matches": 0, "skipped": 0, "players_upserted": 0, "errors": 0}
+    page_size = settings.PAGE_SIZE
+    known_ids = get_match_ids_in_db()
+    counters  = {"new_matches": 0, "skipped": 0, "players_upserted": 0, "errors": 0}
 
     logger.info("Iniciando recolección de historial. IDs ya en DB: %d", len(known_ids))
 
-    for page in range(1, max_pages + 1):
-        logger.info("Procesando página %d/%d…", page, max_pages)
+    page = 1
+    while True:
+        if max_pages and page > max_pages:
+            logger.info("Límite de páginas alcanzado (%d).", max_pages)
+            break
+
+        logger.info("Procesando página %d…", page)
 
         try:
             result = get_scoreboard_maps(page=page, limit=page_size)
         except Exception as e:
             logger.error("Error al obtener página %d: %s", page, e)
             counters["errors"] += 1
-            continue
+            break
 
         maps = result.get("maps", [])
         if not maps:
             logger.info("No hay más partidas en página %d. Fin.", page)
             break
+
+        new_in_page = 0
 
         for raw_match in maps:
             match_id = raw_match["id"]
@@ -146,14 +153,11 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
                 counters["errors"] += 1
                 continue
 
-            player_stats_list = detail.get("player_stats", [])
-
-            for raw_ps in player_stats_list:
+            for raw_ps in detail.get("player_stats", []):
                 try:
                     pid, steam_name, country, level = _parse_player_identity(raw_ps)
                     upsert_player(pid, raw_ps["player"], steam_name, country, level)
                     counters["players_upserted"] += 1
-
                     ps = _parse_player_stats(raw_ps, match_id)
                     upsert_match_player_stats(ps)
                 except Exception as e:
@@ -161,8 +165,17 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
                     counters["errors"] += 1
 
             counters["new_matches"] += 1
+            new_in_page += 1
             known_ids.add(match_id)
             logger.debug("Match %d guardado (%s).", match_id, match_data["map_name"])
+
+        # Si ninguna partida de esta página fue nueva, ya alcanzamos
+        # el historial conocido → no tiene sentido seguir paginando
+        if new_in_page == 0:
+            logger.info("Página %d sin partidas nuevas. Recolección incremental completa.", page)
+            break
+
+        page += 1
 
     logger.info("Recolección finalizada: %s", counters)
     return counters

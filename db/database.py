@@ -3,7 +3,6 @@ db/database.py  – Conexión y operaciones con PostgreSQL via psycopg2
 """
 import logging
 from contextlib import contextmanager
-from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -40,7 +39,6 @@ def db_cursor(commit: bool = True):
 
 
 def init_db() -> None:
-    """Crea todas las tablas e índices si no existen."""
     import os
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     with open(schema_path) as f:
@@ -71,7 +69,6 @@ def upsert_player(player_id: str, name: str, steam_name: str | None,
 
 
 def upsert_match(match: dict) -> bool:
-    """Inserta una partida. Retorna True si es nueva, False si ya existía."""
     sql = """
         INSERT INTO matches (
             match_id, map_id, map_name, game_mode, environment,
@@ -82,15 +79,10 @@ def upsert_match(match: dict) -> bool:
     """
     with db_cursor() as cur:
         cur.execute(sql, (
-            match["match_id"],
-            match["map_id"],
-            match["map_name"],
-            match["game_mode"],
-            match["environment"],
-            match["start_time"],
-            match["end_time"],
-            match["score_allied"],
-            match["score_axis"],
+            match["match_id"], match["map_id"], match["map_name"],
+            match["game_mode"], match["environment"],
+            match["start_time"], match["end_time"],
+            match["score_allied"], match["score_axis"],
         ))
         return cur.fetchone() is not None
 
@@ -151,6 +143,7 @@ def get_match_ids_in_db() -> set[int]:
 
 
 def get_player_totals(limit: int = 10) -> list[dict]:
+    """Top jugadores por kills totales."""
     sql = """
         SELECT player_id, name, country, matches_played,
                total_kills, total_deaths, overall_kd,
@@ -162,6 +155,76 @@ def get_player_totals(limit: int = 10) -> list[dict]:
     """
     with db_cursor(commit=False) as cur:
         cur.execute(sql, (limit,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_hours(limit: int = 10) -> list[dict]:
+    """Top jugadores por horas jugadas totales."""
+    sql = """
+        SELECT
+            p.name,
+            p.country,
+            COUNT(DISTINCT mps.match_id)            AS matches_played,
+            SUM(mps.time_seconds)                   AS total_seconds,
+            ROUND(SUM(mps.time_seconds) / 3600.0, 1) AS total_hours,
+            SUM(mps.kills)                          AS total_kills,
+            SUM(mps.deaths)                         AS total_deaths
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        GROUP BY p.player_id, p.name, p.country
+        HAVING SUM(mps.time_seconds) > 0
+        ORDER BY total_seconds DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (limit,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_kd(limit: int = 10, min_matches: int = 10) -> list[dict]:
+    """Top jugadores por KD con mínimo de partidas jugadas."""
+    sql = """
+        SELECT
+            p.name,
+            p.country,
+            COUNT(DISTINCT mps.match_id)                         AS matches_played,
+            SUM(mps.kills)                                       AS total_kills,
+            SUM(mps.deaths)                                      AS total_deaths,
+            CASE WHEN SUM(mps.deaths) > 0
+                 THEN ROUND(SUM(mps.kills)::numeric / SUM(mps.deaths), 2)
+                 ELSE SUM(mps.kills)
+            END                                                  AS kd_ratio
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        GROUP BY p.player_id, p.name, p.country
+        HAVING COUNT(DISTINCT mps.match_id) >= %s
+        ORDER BY kd_ratio DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (min_matches, limit))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_kills_per_hour(limit: int = 10, min_hours: float = 2.0) -> list[dict]:
+    """Top jugadores por kills/hora — eficiencia real."""
+    sql = """
+        SELECT
+            p.name,
+            p.country,
+            COUNT(DISTINCT mps.match_id)                              AS matches_played,
+            SUM(mps.kills)                                            AS total_kills,
+            ROUND(SUM(mps.time_seconds) / 3600.0, 1)                 AS total_hours,
+            ROUND(SUM(mps.kills) / (SUM(mps.time_seconds) / 3600.0), 2) AS kills_per_hour
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        GROUP BY p.player_id, p.name, p.country
+        HAVING SUM(mps.time_seconds) >= %s * 3600
+        ORDER BY kills_per_hour DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (min_hours, limit))
         return [dict(row) for row in cur.fetchall()]
 
 
