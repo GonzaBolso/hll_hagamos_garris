@@ -152,7 +152,8 @@ def _period_filter(period: str | None) -> tuple[str, list]:
         return "", []
     if period == "day":
         # Día calendario en Uruguay: desde medianoche UY de hoy
-        clause = "AND m.start_time >= (NOW() AT TIME ZONE 'America/Montevideo')::date AT TIME ZONE 'America/Montevideo'"
+        # start_time está en UTC, medianoche UY = UTC+3h
+        clause = "AND m.start_time >= date_trunc('day', NOW() AT TIME ZONE 'America/Montevideo') AT TIME ZONE 'America/Montevideo'"
         return clause, []
     intervals = {"week": "7 days", "month": "30 days"}
     interval = intervals.get(period, "7 days")
