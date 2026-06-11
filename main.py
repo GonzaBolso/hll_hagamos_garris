@@ -10,11 +10,17 @@ Uso:
 import argparse
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+import time as _time
+
+class _UYFormatter(logging.Formatter):
+    """Formatter que muestra hora en Uruguay (UTC-3)."""
+    def converter(self, timestamp):
+        from datetime import datetime, timezone, timedelta
+        return datetime.fromtimestamp(timestamp, tz=timezone(timedelta(hours=-3))).timetuple()
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_UYFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger("hll_stats")
 
 
@@ -25,8 +31,17 @@ def cmd_init_db(_args):
 
 
 def cmd_collect(args):
+    from datetime import datetime, timezone, timedelta
     from collectors.history_collector import collect_history
     from discord.webhook import send_collection_report
+
+    # Ventana horaria: solo entre 15:00 y 03:00 Uruguay (UTC-3)
+    TZ_UY = timezone(timedelta(hours=-3))
+    now = datetime.now(TZ_UY)
+    hour = now.hour
+    if not (hour >= 15 or hour < 3):
+        logger.info("Fuera de ventana horaria (%02d:%02d UY). No se juega, saltando recolección.", hour, now.minute)
+        return
 
     pages = args.pages
     logger.info("Iniciando recolección — %s", f"{pages} páginas máx." if pages else "modo incremental")

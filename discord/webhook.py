@@ -2,9 +2,11 @@
 discord/webhook.py  –  Envía embeds a Discord via webhook
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
+
+TZ_UY = timezone(timedelta(hours=-3))  # Uruguay UTC-3
 
 from config.settings import settings
 
@@ -103,7 +105,7 @@ def send_match_summary(match: dict, top_players: list[dict]) -> bool:
 
     payload = {"embeds": [{"title": "📊 Resumen de Partida", "description": f"🗓️ {ts}", "color": color,
                             "fields": fields, "footer": {"text": "[LATAM] Hagamos Garris · HLL Stats"},
-                            "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                            "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
@@ -115,7 +117,7 @@ def send_collection_report(counters: dict) -> bool:
                     {"name": "👤 Players actualizados", "value": str(counters.get("players_upserted", 0)), "inline": True},
                     {"name": "❌ Errores",              "value": str(counters.get("errors", 0)),            "inline": True},
                 ],
-                "footer": {"text": "HLL Stats Bot"}, "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                "footer": {"text": "HLL Stats Bot"}, "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
@@ -130,7 +132,7 @@ def send_top_players(players: list[dict]) -> bool:
                      f"{p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · KD **{kd}** · {p.get('matches_played',0)} partidas")
     payload = {"embeds": [{"title": "💀 Top Kills Totales", "description": "\n".join(lines),
                 "color": COLORS["info"], "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
@@ -148,7 +150,7 @@ def send_top_hours(players: list[dict]) -> bool:
                      f"⏱️ **{p.get('total_hours',0)}h** · {p.get('total_kills',0)} kills · {p.get('matches_played',0)} partidas")
     payload = {"embeds": [{"title": "⏱️ Top Horas Jugadas", "description": "\n".join(lines),
                 "color": COLORS["green"], "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
@@ -162,7 +164,7 @@ def send_top_kd(players: list[dict], min_matches: int = 10) -> bool:
                      f"KD **{p.get('kd_ratio',0)}** · {p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · {p.get('matches_played',0)} partidas")
     payload = {"embeds": [{"title": f"⚔️ Top KD (mín. {min_matches} partidas)", "description": "\n".join(lines),
                 "color": COLORS["gold"], "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
@@ -176,5 +178,5 @@ def send_top_efficiency(players: list[dict], min_hours: float = 2.0) -> bool:
                      f"🎯 **{p.get('kills_per_hour',0)} K/h** · {p.get('total_kills',0)} kills en {p.get('total_hours',0)}h · {p.get('matches_played',0)} partidas")
     payload = {"embeds": [{"title": f"🎯 Top Eficiencia — Kills/Hora (mín. {min_hours}h)", "description": "\n".join(lines),
                 "color": COLORS["purple"], "footer": {"text": "HLL Stats Bot"},
-                "timestamp": datetime.now(timezone.utc).isoformat()}]}
+                "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
