@@ -67,64 +67,68 @@ def cmd_report_top(args):
     )
     from discord.webhook import send_top_players, send_top_hours, send_top_kd, send_top_efficiency
 
-    mode  = args.mode
-    limit = args.limit
+    mode   = args.mode
+    limit  = args.limit
+    period = args.period
+
+    PERIOD_LABELS = {"day": "Hoy", "week": "Esta Semana", "month": "Este Mes", None: "Histórico"}
+    period_label = PERIOD_LABELS.get(period, "Histórico")
 
     if mode == "kills":
-        players = get_player_totals(limit=limit)
+        players = get_player_totals(limit=limit, period=period)
         if not players:
             print("⚠️  No hay jugadores en la DB.")
             return
-        print(f"\n🏆 TOP {limit} — KILLS TOTALES")
+        print(f"\n🏆 TOP {limit} — KILLS — {period_label.upper()}")
         print(f"{'#':<4} {'Jugador':<25} {'Kills':>7} {'Deaths':>7} {'KD':>6} {'Partidas':>9}")
         print("─" * 65)
         for i, p in enumerate(players, 1):
             print(f"{i:<4} {p['name']:<25} {p['total_kills']:>7} "
                   f"{p['total_deaths']:>7} {float(p['overall_kd'] or 0):>6.2f} {p['matches_played']:>9}")
         if args.notify:
-            send_top_players(players)
+            send_top_players(players, period_label=period_label)
 
     elif mode == "hours":
-        players = get_top_hours(limit=limit)
+        players = get_top_hours(limit=limit, period=period)
         if not players:
             print("⚠️  No hay datos de tiempo jugado.")
             return
-        print(f"\n⏱️  TOP {limit} — HORAS JUGADAS")
+        print(f"\n⏱️  TOP {limit} — HORAS JUGADAS — {period_label.upper()}")
         print(f"{'#':<4} {'Jugador':<25} {'Horas':>7} {'Kills':>7} {'Partidas':>9}")
         print("─" * 60)
         for i, p in enumerate(players, 1):
             print(f"{i:<4} {p['name']:<25} {float(p['total_hours']):>7.1f} "
                   f"{p['total_kills']:>7} {p['matches_played']:>9}")
         if args.notify:
-            send_top_hours(players)
+            send_top_hours(players, period_label=period_label)
 
     elif mode == "kd":
-        players = get_top_kd(limit=limit, min_matches=args.min_matches)
+        players = get_top_kd(limit=limit, min_matches=args.min_matches, period=period)
         if not players:
             print(f"⚠️  No hay jugadores con {args.min_matches}+ partidas.")
             return
-        print(f"\n⚔️  TOP {limit} — MEJOR KD (mín. {args.min_matches} partidas)")
+        print(f"\n⚔️  TOP {limit} — MEJOR KD — {period_label.upper()} (mín. {args.min_matches} partidas)")
         print(f"{'#':<4} {'Jugador':<25} {'KD':>6} {'Kills':>7} {'Deaths':>7} {'Partidas':>9}")
         print("─" * 65)
         for i, p in enumerate(players, 1):
             print(f"{i:<4} {p['name']:<25} {float(p['kd_ratio']):>6.2f} "
                   f"{p['total_kills']:>7} {p['total_deaths']:>7} {p['matches_played']:>9}")
         if args.notify:
-            send_top_kd(players, min_matches=args.min_matches)
+            send_top_kd(players, min_matches=args.min_matches, period_label=period_label)
 
     elif mode == "efficiency":
-        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours)
+        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours, period=period)
         if not players:
             print(f"⚠️  No hay jugadores con {args.min_hours}+ horas jugadas.")
             return
-        print(f"\n🎯 TOP {limit} — KILLS POR HORA (mín. {args.min_hours}h)")
+        print(f"\n🎯 TOP {limit} — KILLS/HORA — {period_label.upper()} (mín. {args.min_hours}h)")
         print(f"{'#':<4} {'Jugador':<25} {'K/h':>6} {'Kills':>7} {'Horas':>7} {'Partidas':>9}")
         print("─" * 65)
         for i, p in enumerate(players, 1):
             print(f"{i:<4} {p['name']:<25} {float(p['kills_per_hour']):>6.2f} "
                   f"{p['total_kills']:>7} {float(p['total_hours']):>7.1f} {p['matches_played']:>9}")
         if args.notify:
-            send_top_efficiency(players, min_hours=args.min_hours)
+            send_top_efficiency(players, min_hours=args.min_hours, period_label=period_label)
 
     if args.notify:
         print("📣 Ranking enviado a Discord.")
@@ -194,7 +198,13 @@ def main():
         default="kills",
         help="kills=total kills | hours=horas jugadas | kd=mejor KD | efficiency=kills/hora",
     )
-    p_top.add_argument("--min-matches", type=int, default=10,
+    p_top.add_argument(
+        "--period",
+        choices=["day", "week", "month"],
+        default=None,
+        help="Período: day=hoy | week=7 días | month=30 días | (sin valor)=histórico",
+    )
+    p_top.add_argument("--min-matches", type=int, default=5,
                        help="Mínimo de partidas para el ranking KD (default: 10)")
     p_top.add_argument("--min-hours", type=float, default=2.0,
                        help="Mínimo de horas para el ranking efficiency (default: 2)")

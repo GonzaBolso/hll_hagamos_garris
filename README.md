@@ -1,5 +1,18 @@
 # HLL Stats 🎖️
 
+
+# Histórico (todo el tiempo)
+python main.py report-top --mode kills --limit 15 --notify
+
+# Esta semana
+python main.py report-top --mode kills --limit 15 --period week --notify
+
+# Hoy
+python main.py report-top --mode efficiency --limit 15 --period day --notify
+
+# Este mes con KD
+python main.py report-top --mode kd --limit 15 --period month --notify
+
 Sistema de estadísticas para Hell Let Loose que recolecta datos históricos del servidor
 **[LATAM] Hagamos Garris**, los persiste en PostgreSQL y los publica en Discord via webhook.
 

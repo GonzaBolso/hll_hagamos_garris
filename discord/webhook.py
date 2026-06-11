@@ -121,7 +121,7 @@ def send_collection_report(counters: dict) -> bool:
     return _post(payload)
 
 
-def send_top_players(players: list[dict]) -> bool:
+def send_top_players(players: list[dict], period_label: str = "Histórico") -> bool:
     """Top kills totales."""
     if not players:
         return False
@@ -130,7 +130,7 @@ def send_top_players(players: list[dict]) -> bool:
         kd = p.get("overall_kd") or 0
         lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
                      f"{p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · KD **{kd}** · {p.get('matches_played',0)} partidas")
-    payload = {"embeds": [{"title": "💀 Top Kills Totales", "description": "\n".join(lines),
+    payload = {"embeds": [{"title": f"💀 Top Kills — {period_label}", "description": "\n".join(lines),
                 "color": COLORS["info"], "footer": {"text": "HLL Stats Bot"},
                 "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
@@ -140,7 +140,7 @@ def send_top_players(players: list[dict]) -> bool:
 # Nuevos rankings
 # ──────────────────────────────────────────────
 
-def send_top_hours(players: list[dict]) -> bool:
+def send_top_hours(players: list[dict], period_label: str = "Histórico") -> bool:
     """Top horas jugadas."""
     if not players:
         return False
@@ -148,13 +148,13 @@ def send_top_hours(players: list[dict]) -> bool:
     for i, p in enumerate(players):
         lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
                      f"⏱️ **{p.get('total_hours',0)}h** · {p.get('total_kills',0)} kills · {p.get('matches_played',0)} partidas")
-    payload = {"embeds": [{"title": "⏱️ Top Horas Jugadas", "description": "\n".join(lines),
+    payload = {"embeds": [{"title": f"⏱️ Top Horas Jugadas — {period_label}", "description": "\n".join(lines),
                 "color": COLORS["green"], "footer": {"text": "HLL Stats Bot"},
                 "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
-def send_top_kd(players: list[dict], min_matches: int = 10) -> bool:
+def send_top_kd(players: list[dict], min_matches: int = 5, period_label: str = "Histórico") -> bool:
     """Top KD con mínimo de partidas."""
     if not players:
         return False
@@ -162,21 +162,21 @@ def send_top_kd(players: list[dict], min_matches: int = 10) -> bool:
     for i, p in enumerate(players):
         lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
                      f"KD **{p.get('kd_ratio',0)}** · {p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · {p.get('matches_played',0)} partidas")
-    payload = {"embeds": [{"title": f"⚔️ Top KD (mín. {min_matches} partidas)", "description": "\n".join(lines),
+    payload = {"embeds": [{"title": f"⚔️ Top KD — {period_label} (mín. {min_matches} partidas)", "description": "\n".join(lines),
                 "color": COLORS["gold"], "footer": {"text": "HLL Stats Bot"},
                 "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)
 
 
-def send_top_efficiency(players: list[dict], min_hours: float = 2.0) -> bool:
-    """Top kills por hora — el combo que mencionaste."""
+def send_top_efficiency(players: list[dict], min_hours: float = 1.0, period_label: str = "Histórico") -> bool:
+    """Top kills por hora."""
     if not players:
         return False
     lines = []
     for i, p in enumerate(players):
         lines.append(f"{_medals(i)}{_country_flag(p.get('country'))} **{p['name']}** — "
                      f"🎯 **{p.get('kills_per_hour',0)} K/h** · {p.get('total_kills',0)} kills en {p.get('total_hours',0)}h · {p.get('matches_played',0)} partidas")
-    payload = {"embeds": [{"title": f"🎯 Top Eficiencia — Kills/Hora (mín. {min_hours}h)", "description": "\n".join(lines),
+    payload = {"embeds": [{"title": f"🎯 Top Eficiencia K/h — {period_label} (mín. {min_hours}h)", "description": "\n".join(lines),
                 "color": COLORS["purple"], "footer": {"text": "HLL Stats Bot"},
                 "timestamp": datetime.now(TZ_UY).isoformat()}]}
     return _post(payload)

@@ -142,89 +142,124 @@ def get_match_ids_in_db() -> set[int]:
         return {row[0] for row in cur.fetchall()}
 
 
-def get_player_totals(limit: int = 10) -> list[dict]:
+def _period_filter(period: str | None) -> tuple[str, list]:
+    """
+    Devuelve (cláusula SQL, parámetros) para filtrar por período.
+    period: 'day' | 'week' | 'month' | None (tdo el historial)
+    Las fechas se calculan en UTC-3 (Uruguay).
+    """
+    if not period:
+        return "", []
+    intervals = {"day": "1 day", "week": "7 days", "month": "30 days"}
+    interval = intervals.get(period, "7 days")
+    # start_time de matches está en UTC; restamos 3 horas para comparar en hora UY
+    clause = """
+        AND m.start_time >= (NOW() AT TIME ZONE 'America/Montevideo')::date
+                            - INTERVAL %s
+                            + INTERVAL '0'
+    """
+    # Más simple: filtramos directo con NOW() - interval
+    clause = "AND m.start_time >= NOW() - INTERVAL %s"
+    return clause, [interval]
+
+
+def get_player_totals(limit: int = 10, period: str | None = None) -> list[dict]:
     """Top jugadores por kills totales."""
-    sql = """
-        SELECT player_id, name, country, matches_played,
-               total_kills, total_deaths, overall_kd,
-               total_combat, total_offense, total_defense, total_support,
-               best_kill_streak, max_level, last_seen_at
-        FROM player_totals
+    period_clause, period_params = _period_filter(period)
+    sql = f"""
+        SELECT
+            p.player_id, p.name, p.country,
+            COUNT(DISTINCT mps.match_id)  AS matches_played,
+            SUM(mps.kills)                AS total_kills,
+            SUM(mps.deaths)               AS total_deaths,
+            CASE WHEN SUM(mps.deaths) > 0
+                 THEN ROUND(SUM(mps.kills)::numeric / SUM(mps.deaths), 2)
+                 ELSE SUM(mps.kills) END  AS overall_kd
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {period_clause}
+        GROUP BY p.player_id, p.name, p.country
         ORDER BY total_kills DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, (limit,))
+        cur.execute(sql, period_params + [limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_hours(limit: int = 10) -> list[dict]:
-    """Top jugadores por horas jugadas totales."""
-    sql = """
+def get_top_hours(limit: int = 10, period: str | None = None) -> list[dict]:
+    """Top jugadores por horas jugadas."""
+    period_clause, period_params = _period_filter(period)
+    sql = f"""
         SELECT
-            p.name,
-            p.country,
-            COUNT(DISTINCT mps.match_id)            AS matches_played,
-            SUM(mps.time_seconds)                   AS total_seconds,
+            p.name, p.country,
+            COUNT(DISTINCT mps.match_id)             AS matches_played,
+            SUM(mps.time_seconds)                    AS total_seconds,
             ROUND(SUM(mps.time_seconds) / 3600.0, 1) AS total_hours,
-            SUM(mps.kills)                          AS total_kills,
-            SUM(mps.deaths)                         AS total_deaths
+            SUM(mps.kills)                           AS total_kills,
+            SUM(mps.deaths)                          AS total_deaths
         FROM match_player_stats mps
         JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {period_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING SUM(mps.time_seconds) > 0
         ORDER BY total_seconds DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, (limit,))
+        cur.execute(sql, period_params + [limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_kd(limit: int = 10, min_matches: int = 10) -> list[dict]:
-    """Top jugadores por KD con mínimo de partidas jugadas."""
-    sql = """
+def get_top_kd(limit: int = 10, min_matches: int = 5, period: str | None = None) -> list[dict]:
+    """Top jugadores por KD con mínimo de partidas."""
+    period_clause, period_params = _period_filter(period)
+    sql = f"""
         SELECT
-            p.name,
-            p.country,
-            COUNT(DISTINCT mps.match_id)                         AS matches_played,
-            SUM(mps.kills)                                       AS total_kills,
-            SUM(mps.deaths)                                      AS total_deaths,
+            p.name, p.country,
+            COUNT(DISTINCT mps.match_id) AS matches_played,
+            SUM(mps.kills)               AS total_kills,
+            SUM(mps.deaths)              AS total_deaths,
             CASE WHEN SUM(mps.deaths) > 0
                  THEN ROUND(SUM(mps.kills)::numeric / SUM(mps.deaths), 2)
-                 ELSE SUM(mps.kills)
-            END                                                  AS kd_ratio
+                 ELSE SUM(mps.kills) END AS kd_ratio
         FROM match_player_stats mps
         JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {period_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING COUNT(DISTINCT mps.match_id) >= %s
         ORDER BY kd_ratio DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, (min_matches, limit))
+        cur.execute(sql, period_params + [min_matches, limit])
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_kills_per_hour(limit: int = 10, min_hours: float = 2.0) -> list[dict]:
-    """Top jugadores por kills/hora — eficiencia real."""
-    sql = """
+def get_top_kills_per_hour(limit: int = 10, min_hours: float = 1.0, period: str | None = None) -> list[dict]:
+    """Top jugadores por kills/hora."""
+    period_clause, period_params = _period_filter(period)
+    sql = f"""
         SELECT
-            p.name,
-            p.country,
-            COUNT(DISTINCT mps.match_id)                              AS matches_played,
-            SUM(mps.kills)                                            AS total_kills,
-            ROUND(SUM(mps.time_seconds) / 3600.0, 1)                 AS total_hours,
+            p.name, p.country,
+            COUNT(DISTINCT mps.match_id)                               AS matches_played,
+            SUM(mps.kills)                                             AS total_kills,
+            ROUND(SUM(mps.time_seconds) / 3600.0, 1)                  AS total_hours,
             ROUND(SUM(mps.kills) / (SUM(mps.time_seconds) / 3600.0), 2) AS kills_per_hour
         FROM match_player_stats mps
         JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {period_clause}
         GROUP BY p.player_id, p.name, p.country
         HAVING SUM(mps.time_seconds) >= %s * 3600
         ORDER BY kills_per_hour DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, (min_hours, limit))
+        cur.execute(sql, period_params + [min_hours, limit])
         return [dict(row) for row in cur.fetchall()]
 
 
