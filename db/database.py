@@ -145,20 +145,17 @@ def get_match_ids_in_db() -> set[int]:
 def _period_filter(period: str | None) -> tuple[str, list]:
     """
     Devuelve (cláusula SQL, parámetros) para filtrar por período.
-    period: 'day' | 'week' | 'month' | None (tdo el historial)
+    period: 'day' | 'week' | 'month' | None (todo el historial)
     Las fechas se calculan en UTC-3 (Uruguay).
     """
     if not period:
         return "", []
-    intervals = {"day": "1 day", "week": "7 days", "month": "30 days"}
+    if period == "day":
+        # Día calendario en Uruguay: desde medianoche UY de hoy
+        clause = "AND m.start_time >= (NOW() AT TIME ZONE 'America/Montevideo')::date AT TIME ZONE 'America/Montevideo'"
+        return clause, []
+    intervals = {"week": "7 days", "month": "30 days"}
     interval = intervals.get(period, "7 days")
-    # start_time de matches está en UTC; restamos 3 horas para comparar en hora UY
-    clause = """
-        AND m.start_time >= (NOW() AT TIME ZONE 'America/Montevideo')::date
-                            - INTERVAL %s
-                            + INTERVAL '0'
-    """
-    # Más simple: filtramos directo con NOW() - interval
     clause = "AND m.start_time >= NOW() - INTERVAL %s"
     return clause, [interval]
 
