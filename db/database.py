@@ -579,15 +579,18 @@ def get_weapons_autocomplete(query: str, limit: int = 10) -> list[str]:
     """Devuelve armas que coincidan con el query. Si está vacío, top armas por uso."""
     if query:
         sql = """
-            SELECT DISTINCT jsonb_object_keys(weapons) AS weapon
-            FROM match_player_stats
-            WHERE weapons::text ILIKE %s
-            ORDER BY weapon
+            SELECT key AS weapon, SUM(val::int) AS total_kills
+            FROM match_player_stats,
+                 jsonb_each_text(weapons) AS w(key, val)
+            WHERE key ILIKE %s
+            GROUP BY key
+            ORDER BY
+                CASE WHEN key ILIKE %s THEN 0 ELSE 1 END,
+                total_kills DESC
             LIMIT %s
         """
-        params = [f"%{query}%", limit]
+        params = [f"%{query}%", f"{query}%", limit]
     else:
-        # Top armas por kills totales
         sql = """
             SELECT key AS weapon
             FROM match_player_stats,
