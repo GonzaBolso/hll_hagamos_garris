@@ -66,7 +66,7 @@ def _get_server_name() -> str:
     try:
         from collectors.api_client import get_public_info
         info = get_public_info()
-        return info.get("short_name") or info.get("name") or "HLL Stats"
+        return info["name"]["short_name"]
     except Exception:
         return "HLL Stats"
 

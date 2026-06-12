@@ -1,3 +1,10 @@
+#EJEMPLOS
+--Top 15 mapas de la semana
+python main.py report-top --mode maps --limit 15 --period week --notify
+
+--
+python main.py report-top --mode kd --limit 15 --min-matches 2 --date 2026-06-11 --notify
+
 # Histórico
 python main.py report-top --mode kills --limit 15 --notify
 python main.py report-top --mode hours --limit 15 --notify
