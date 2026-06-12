@@ -56,27 +56,41 @@ def cmd_collect(args):
     )
 
     if args.notify:
-        send_collection_report(counters)
+        server_name = _get_server_name()
+        send_collection_report(counters, server_name=server_name)
         print("📣 Reporte enviado a Discord.")
+
+
+def _get_server_name() -> str:
+    """Obtiene el short_name del servidor desde la API."""
+    try:
+        from collectors.api_client import get_public_info
+        info = get_public_info()
+        return info.get("short_name") or info.get("name") or "HLL Stats"
+    except Exception:
+        return "HLL Stats"
 
 
 def cmd_report_top(args):
     from db.database import (
-        get_player_totals, get_top_hours,
-        get_top_kd, get_top_kills_per_hour,
+        get_player_totals, get_top_hours, get_top_kd,
+        get_top_kills_per_hour, get_top_score_tactical,
+        get_top_score_combat, get_top_maps,
     )
-    from discord.webhook import send_top_players, send_top_hours, send_top_kd, send_top_efficiency
+    from discord.webhook import (
+        send_top_players, send_top_hours, send_top_kd,
+        send_top_efficiency, send_top_score_tactical,
+        send_top_score_combat, send_top_maps,
+    )
 
-    mode   = args.mode
-    limit  = args.limit
-    period = args.period
+    mode     = args.mode
+    limit    = args.limit
+    period   = args.period
     date_str = getattr(args, 'date', None)
+    server_name = _get_server_name()
 
     PERIOD_LABELS = {"day": "Hoy", "week": "Esta Semana", "month": "Este Mes", None: "Histórico"}
-    if date_str:
-        period_label = date_str
-    else:
-        period_label = PERIOD_LABELS.get(period, "Histórico")
+    period_label = date_str if date_str else PERIOD_LABELS.get(period, "Histórico")
 
     if mode == "kills":
         players = get_player_totals(limit=limit, period=period, date_str=date_str)
@@ -90,7 +104,7 @@ def cmd_report_top(args):
             print(f"{i:<4} {p['name']:<25} {p['total_kills']:>7} "
                   f"{p['total_deaths']:>7} {float(p['overall_kd'] or 0):>6.2f} {p['matches_played']:>9}")
         if args.notify:
-            send_top_players(players, period_label=period_label)
+            send_top_players(players, period_label=period_label, server_name=server_name)
 
     elif mode == "hours":
         players = get_top_hours(limit=limit, period=period, date_str=date_str)
@@ -104,7 +118,7 @@ def cmd_report_top(args):
             print(f"{i:<4} {p['name']:<25} {float(p['total_hours']):>7.1f} "
                   f"{p['total_kills']:>7} {p['matches_played']:>9}")
         if args.notify:
-            send_top_hours(players, period_label=period_label)
+            send_top_hours(players, period_label=period_label, server_name=server_name)
 
     elif mode == "kd":
         players = get_top_kd(limit=limit, min_matches=args.min_matches, period=period, date_str=date_str)
@@ -118,7 +132,7 @@ def cmd_report_top(args):
             print(f"{i:<4} {p['name']:<25} {float(p['kd_ratio']):>6.2f} "
                   f"{p['total_kills']:>7} {p['total_deaths']:>7} {p['matches_played']:>9}")
         if args.notify:
-            send_top_kd(players, min_matches=args.min_matches, period_label=period_label)
+            send_top_kd(players, min_matches=args.min_matches, period_label=period_label, server_name=server_name)
 
     elif mode == "efficiency":
         players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours, period=period, date_str=date_str)
@@ -132,7 +146,49 @@ def cmd_report_top(args):
             print(f"{i:<4} {p['name']:<25} {float(p['kills_per_hour']):>6.2f} "
                   f"{p['total_kills']:>7} {float(p['total_hours']):>7.1f} {p['matches_played']:>9}")
         if args.notify:
-            send_top_efficiency(players, min_hours=args.min_hours, period_label=period_label)
+            send_top_efficiency(players, min_hours=args.min_hours, period_label=period_label, server_name=server_name)
+
+    elif mode == "tactical":
+        players = get_top_score_tactical(limit=limit, period=period, date_str=date_str)
+        if not players:
+            print("⚠️  No hay datos.")
+            return
+        print(f"\n🛡️  TOP {limit} — ATAQUE + DEFENSA×1.75 — {period_label.upper()}")
+        print(f"{'#':<4} {'Jugador':<25} {'Score':>8} {'Ataque':>8} {'Defensa':>8} {'Partidas':>9}")
+        print("─" * 70)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {int(p['score_tactical']):>8} "
+                  f"{p['total_offense']:>8} {p['total_defense']:>8} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_score_tactical(players, period_label=period_label, server_name=server_name)
+
+    elif mode == "combat":
+        players = get_top_score_combat(limit=limit, period=period, date_str=date_str)
+        if not players:
+            print("⚠️  No hay datos.")
+            return
+        print(f"\n💥 TOP {limit} — COMBATE + APOYO×1.75 — {period_label.upper()}")
+        print(f"{'#':<4} {'Jugador':<25} {'Score':>8} {'Combate':>8} {'Apoyo':>8} {'Partidas':>9}")
+        print("─" * 70)
+        for i, p in enumerate(players, 1):
+            print(f"{i:<4} {p['name']:<25} {int(p['score_combat']):>8} "
+                  f"{p['total_combat']:>8} {p['total_support']:>8} {p['matches_played']:>9}")
+        if args.notify:
+            send_top_score_combat(players, period_label=period_label, server_name=server_name)
+
+    elif mode == "maps":
+        maps = get_top_maps(limit=limit, period=period, date_str=date_str)
+        if not maps:
+            print("⚠️  No hay partidas en la DB.")
+            return
+        print(f"\n🗺️  TOP {limit} — MAPAS MÁS JUGADOS — {period_label.upper()}")
+        print(f"{'#':<4} {'Mapa':<30} {'Partidas':>9} {'Aliados':>8} {'Eje':>6} {'Dur.avg':>8}")
+        print("─" * 70)
+        for i, m in enumerate(maps, 1):
+            print(f"{i:<4} {m['map_name']:<30} {m['total_matches']:>9} "
+                  f"{m['allied_wins']:>8} {m['axis_wins']:>6} {int(m['avg_duration_min'] or 0):>7}m")
+        if args.notify:
+            send_top_maps(maps, period_label=period_label, server_name=server_name)
 
     if args.notify:
         print("📣 Ranking enviado a Discord.")
@@ -198,9 +254,9 @@ def main():
     p_top.add_argument("--limit", type=int, default=10)
     p_top.add_argument(
         "--mode",
-        choices=["kills", "hours", "kd", "efficiency"],
+        choices=["kills", "hours", "kd", "efficiency", "tactical", "combat", "maps"],
         default="kills",
-        help="kills=total kills | hours=horas jugadas | kd=mejor KD | efficiency=kills/hora",
+        help="kills | hours | kd | efficiency | tactical | combat | maps",
     )
     p_top.add_argument(
         "--period",

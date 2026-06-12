@@ -1,0 +1,31 @@
+# Histórico
+python main.py report-top --mode kills --limit 15 --notify
+python main.py report-top --mode hours --limit 15 --notify
+python main.py report-top --mode kd --limit 15 --min-matches 5 --notify
+python main.py report-top --mode efficiency --limit 15 --min-hours 1 --notify
+
+#Modos
+--mode tactical
+--mode combat
+--mode maps
+--mode kills
+--mode hours
+--mode kd
+--mode efficiency
+
+# Por período
+... --period day
+... --period week
+... --period month
+
+# Por fecha específica
+... --date 2026-06-10
+
+# Combinado
+python main.py report-top --mode kills --period week --limit 15 --notify
+
+# Otros
+python main.py collect --notify
+python main.py init-db
+python main.py post-match 2306
+python main.py worker

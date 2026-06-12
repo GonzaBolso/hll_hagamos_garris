@@ -10,6 +10,13 @@ python main.py report-top --mode kills --period day --limit 15 --notify
 # Esta semana
 python main.py report-top --mode efficiency --period week --limit 15 --notify
 
+disponibles como ranking:
+
+kills — kills totales
+hours — horas jugadas
+kd — mejor KD
+efficiency — kills por hora
+
 Sistema de estadísticas para Hell Let Loose que recolecta datos históricos del servidor
 **[LATAM] Hagamos Garris**, los persiste en PostgreSQL y los publica en Discord via webhook.
 

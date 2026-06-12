@@ -77,13 +77,14 @@ def _parse_player_stats(raw: dict, match_id: int) -> dict:
     }
 
 
-def _parse_player_identity(raw: dict) -> tuple[str, str | None, str | None, int | None]:
+def _parse_player_identity(raw: dict) -> tuple[str, str | None, str | None, int | None, str | None]:
     steam_info = raw.get("steaminfo") or {}
     profile    = steam_info.get("profile") or {}
     steam_name = profile.get("personaname")
     country    = steam_info.get("country")
     level      = raw.get("level")
-    return raw["player_id"], steam_name, country, level
+    avatar_url = profile.get("avatar") or profile.get("avatarmedium") or profile.get("avatarfull")
+    return raw["player_id"], steam_name, country, level, avatar_url
 
 
 # ──────────────────────────────────────────────
@@ -155,8 +156,8 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
 
             for raw_ps in detail.get("player_stats", []):
                 try:
-                    pid, steam_name, country, level = _parse_player_identity(raw_ps)
-                    upsert_player(pid, raw_ps["player"], steam_name, country, level)
+                    pid, steam_name, country, level, avatar_url = _parse_player_identity(raw_ps)
+                    upsert_player(pid, raw_ps["player"], steam_name, country, level, avatar_url)
                     counters["players_upserted"] += 1
                     ps = _parse_player_stats(raw_ps, match_id)
                     upsert_match_player_stats(ps)

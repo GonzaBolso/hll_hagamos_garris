@@ -53,19 +53,21 @@ def init_db() -> None:
 # ──────────────────────────────────────────────
 
 def upsert_player(player_id: str, name: str, steam_name: str | None,
-                  country: str | None, level: int | None) -> None:
+                  country: str | None, level: int | None,
+                  avatar_url: str | None = None) -> None:
     sql = """
-        INSERT INTO players (player_id, name, steam_name, country, level, last_seen_at)
-        VALUES (%s, %s, %s, %s, %s, NOW())
+        INSERT INTO players (player_id, name, steam_name, country, level, avatar_url, last_seen_at)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (player_id) DO UPDATE SET
             name         = EXCLUDED.name,
             steam_name   = COALESCE(EXCLUDED.steam_name, players.steam_name),
             country      = COALESCE(EXCLUDED.country, players.country),
             level        = GREATEST(EXCLUDED.level, players.level),
+            avatar_url   = COALESCE(EXCLUDED.avatar_url, players.avatar_url),
             last_seen_at = NOW()
     """
     with db_cursor() as cur:
-        cur.execute(sql, (player_id, name, steam_name, country, level))
+        cur.execute(sql, (player_id, name, steam_name, country, level, avatar_url))
 
 
 def upsert_match(match: dict) -> bool:
@@ -289,7 +291,83 @@ def get_top_kills_per_hour(limit: int = 10, min_hours: float = 1.0, period: str 
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_recent_matches(limit: int = 5) -> list[dict]:
+def get_top_score_tactical(limit: int = 10, period: str | None = None, date_str: str | None = None) -> list[dict]:
+    """Top jugadores por Ataque + (Defensa × 1.75)."""
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
+    sql = f"""
+        SELECT
+            p.name, p.country, p.avatar_url,
+            COUNT(DISTINCT mps.match_id)                              AS matches_played,
+            SUM(mps.offense)                                          AS total_offense,
+            SUM(mps.defense)                                          AS total_defense,
+            ROUND(SUM(mps.offense) + SUM(mps.defense) * 1.75, 0)    AS score_tactical
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {extra_clause}
+        GROUP BY p.player_id, p.name, p.country, p.avatar_url
+        ORDER BY score_tactical DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, extra_params + [limit])
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_score_combat(limit: int = 10, period: str | None = None, date_str: str | None = None) -> list[dict]:
+    """Top jugadores por Combate + (Apoyo × 1.75)."""
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
+    sql = f"""
+        SELECT
+            p.name, p.country, p.avatar_url,
+            COUNT(DISTINCT mps.match_id)                              AS matches_played,
+            SUM(mps.combat)                                           AS total_combat,
+            SUM(mps.support)                                          AS total_support,
+            ROUND(SUM(mps.combat) + SUM(mps.support) * 1.75, 0)     AS score_combat
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE TRUE {extra_clause}
+        GROUP BY p.player_id, p.name, p.country, p.avatar_url
+        ORDER BY score_combat DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, extra_params + [limit])
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_maps(limit: int = 10, period: str | None = None, date_str: str | None = None) -> list[dict]:
+    """Top mapas por cantidad de partidas jugadas."""
+    if date_str:
+        extra_clause, extra_params = _date_filter(date_str)
+    else:
+        extra_clause, extra_params = _period_filter(period)
+    # Filtramos partidas donde realmente se jugó (duración > 10 min)
+    sql = f"""
+        SELECT
+            map_name,
+            COUNT(*)                                                   AS total_matches,
+            SUM(CASE WHEN score_allied > score_axis THEN 1 ELSE 0 END) AS allied_wins,
+            SUM(CASE WHEN score_axis > score_allied THEN 1 ELSE 0 END) AS axis_wins,
+            SUM(CASE WHEN score_allied = score_axis THEN 1 ELSE 0 END) AS draws,
+            ROUND(AVG(EXTRACT(EPOCH FROM (end_time - start_time)) / 60), 0) AS avg_duration_min
+        FROM matches m
+        WHERE EXTRACT(EPOCH FROM (end_time - start_time)) > 600
+        {extra_clause}
+        GROUP BY map_name
+        ORDER BY total_matches DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, extra_params + [limit])
+        return [dict(row) for row in cur.fetchall()]
     sql = """
         SELECT match_id, map_name, game_mode, start_time,
                duration_minutes, score_allied, score_axis,
