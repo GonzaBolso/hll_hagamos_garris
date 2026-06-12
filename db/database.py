@@ -515,33 +515,18 @@ def get_player_recent_games(player_id: str, limit: int = 5) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_top_by_weapon(weapon_name: str, limit: int = 20, year: int | None = None) -> list[dict]:
+def get_top_by_weapon(weapon_name: str, limit: int = 20, year: int | None = None, month: int | None = None) -> list[dict]:
     """Top jugadores por kills con un arma específica."""
-    conditions = []
-    params = []
+    conditions = ["mps.weapons ? %s"]
+    params = [weapon_name]
     if year:
         conditions.append("EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
         params.append(year)
+    if month:
+        conditions.append("EXTRACT(MONTH FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(month)
 
-    year_join = f"JOIN matches m USING (match_id)" if year else "JOIN matches m USING (match_id)"
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    sql = f"""
-        SELECT
-            p.name, p.country, p.avatar_url,
-            SUM((mps.weapons->>%s)::int)  AS weapon_kills,
-            COUNT(DISTINCT mps.match_id)  AS matches_played
-        FROM match_player_stats mps
-        JOIN players p USING (player_id)
-        {year_join}
-        {where}
-        WHERE mps.weapons ? %s
-        GROUP BY p.player_id, p.name, p.country, p.avatar_url
-        HAVING SUM((mps.weapons->>%s)::int) > 0
-        ORDER BY weapon_kills DESC
-        LIMIT %s
-    """
-    # La query tiene dos WHERE, hay que arreglarla
+    where = " AND ".join(conditions)
     sql = f"""
         SELECT
             p.name, p.country, p.avatar_url,
@@ -550,15 +535,14 @@ def get_top_by_weapon(weapon_name: str, limit: int = 20, year: int | None = None
         FROM match_player_stats mps
         JOIN players p USING (player_id)
         JOIN matches m USING (match_id)
-        WHERE mps.weapons ? %s
-        {"AND " + " AND ".join(conditions) if conditions else ""}
+        WHERE {where}
         GROUP BY p.player_id, p.name, p.country, p.avatar_url
         HAVING SUM((mps.weapons->>%s)::int) > 0
         ORDER BY weapon_kills DESC
         LIMIT %s
     """
     with db_cursor(commit=False) as cur:
-        cur.execute(sql, [weapon_name, weapon_name] + params + [weapon_name, limit])
+        cur.execute(sql, [weapon_name] + params + [weapon_name, limit])
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -603,3 +587,100 @@ def get_weapons_autocomplete(query: str, limit: int = 10) -> list[str]:
     with db_cursor(commit=False) as cur:
         cur.execute(sql, params)
         return [row[0] for row in cur.fetchall()]
+
+
+def get_player_ranks(player_id: str, year: int) -> dict:
+    """Devuelve la posición del jugador en cada ranking para el año dado."""
+    sql = """
+        WITH base AS (
+            SELECT
+                mps.player_id,
+                SUM(mps.kills)                                              AS total_kills,
+                SUM(mps.deaths)                                             AS total_deaths,
+                CASE WHEN SUM(mps.deaths) > 0
+                     THEN ROUND(SUM(mps.kills)::numeric / SUM(mps.deaths), 2)
+                     ELSE SUM(mps.kills) END                                AS kd_ratio,
+                SUM(mps.combat)                                             AS total_combat,
+                SUM(mps.offense)                                            AS total_offense,
+                SUM(mps.defense)                                            AS total_defense,
+                SUM(mps.support)                                            AS total_support,
+                ROUND(SUM(mps.offense) + SUM(mps.defense) * 1.75, 0)      AS score_tactical,
+                ROUND(SUM(mps.combat)  + SUM(mps.support) * 1.75, 0)      AS score_combat
+            FROM match_player_stats mps
+            JOIN matches m USING (match_id)
+            WHERE EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s
+            GROUP BY mps.player_id
+        ),
+        ranked AS (
+            SELECT player_id,
+                RANK() OVER (ORDER BY total_kills    DESC) AS rank_kills,
+                RANK() OVER (ORDER BY kd_ratio       DESC) AS rank_kd,
+                RANK() OVER (ORDER BY total_combat   DESC) AS rank_combat,
+                RANK() OVER (ORDER BY total_offense  DESC) AS rank_offense,
+                RANK() OVER (ORDER BY total_defense  DESC) AS rank_defense,
+                RANK() OVER (ORDER BY total_support  DESC) AS rank_support,
+                RANK() OVER (ORDER BY score_tactical DESC) AS rank_tactical,
+                RANK() OVER (ORDER BY score_combat   DESC) AS rank_score_combat,
+                COUNT(*) OVER ()                           AS total_players
+            FROM base
+        )
+        SELECT * FROM ranked WHERE player_id = %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (year, player_id))
+        row = cur.fetchone()
+        return dict(row) if row else {}
+
+
+def get_player_weapon_rank(player_id: str, weapon_name: str, year: int) -> tuple[int, int]:
+    """Devuelve (posición, total_jugadores) del jugador en un arma específica."""
+    sql = """
+        WITH base AS (
+            SELECT
+                mps.player_id,
+                SUM((mps.weapons->>%s)::int) AS weapon_kills
+            FROM match_player_stats mps
+            JOIN matches m USING (match_id)
+            WHERE mps.weapons ? %s
+            AND EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s
+            GROUP BY mps.player_id
+            HAVING SUM((mps.weapons->>%s)::int) > 0
+        ),
+        ranked AS (
+            SELECT player_id,
+                RANK() OVER (ORDER BY weapon_kills DESC) AS rank,
+                COUNT(*) OVER () AS total
+            FROM base
+        )
+        SELECT rank, total FROM ranked WHERE player_id = %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (weapon_name, weapon_name, year, weapon_name, player_id))
+        row = cur.fetchone()
+        return (int(row[0]), int(row[1])) if row else (0, 0)
+
+
+def get_first_match_date(year: int | None = None) -> str:
+    """Devuelve la fecha del primer registro en formato DD/MM/YYYY en hora UY."""
+    sql = """
+        SELECT TO_CHAR(
+            MIN(start_time) AT TIME ZONE 'America/Montevideo',
+            'DD/MM/YYYY'
+        ) AS first_date
+        FROM matches
+    """
+    params = []
+    if year:
+        sql = """
+            SELECT TO_CHAR(
+                MIN(start_time) AT TIME ZONE 'America/Montevideo',
+                'DD/MM/YYYY'
+            ) AS first_date
+            FROM matches
+            WHERE EXTRACT(YEAR FROM start_time AT TIME ZONE 'America/Montevideo') = %s
+        """
+        params = [year]
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        return row[0] if row and row[0] else "01/01/" + str(year or "")

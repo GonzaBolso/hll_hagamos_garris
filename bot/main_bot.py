@@ -99,14 +99,17 @@ async def leaderboard(interaction: discord.Interaction, mes: bool = False):
 # ── /weapon ───────────────────────────────────
 
 @tree.command(name="weapon", description="Top 20 jugadores con un arma específica", guild=GUILD)
-@app_commands.describe(weapon_name="Nombre del arma (ej: M1 GARAND, MP40, STG44)")
+@app_commands.describe(
+    weapon_name="Nombre del arma (ej: M1 GARAND, MP40, STG44)",
+    mes="True para ver solo este mes"
+)
 @app_commands.autocomplete(weapon_name=weapon_autocomplete_cb)
-async def weapon(interaction: discord.Interaction, weapon_name: str):
+async def weapon(interaction: discord.Interaction, weapon_name: str, mes: bool = False):
     if not _check_channel(interaction):
         await interaction.response.send_message(f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
         return
     from bot.commands.weapon import cmd_weapon
-    await cmd_weapon(interaction, weapon_name)
+    await cmd_weapon(interaction, weapon_name, mes=mes)
 
 
 # ── Eventos ───────────────────────────────────

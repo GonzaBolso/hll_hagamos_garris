@@ -26,18 +26,18 @@ async def weapon_autocomplete(interaction: discord.Interaction, current: str) ->
         return []
 
 
-async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
+async def cmd_weapon(interaction: discord.Interaction, weapon_name: str, mes: bool = False):
     await interaction.response.defer()
 
-    now  = datetime.now(TZ_UY)
-    year = now.year
-    weapon_upper = weapon_name.strip().upper()
-
-    # Fechas del período
-    date_from = f"01/01/{year}"
+    now   = datetime.now(TZ_UY)
+    year  = now.year
+    month = now.month if mes else None
+    label = f"{now.strftime('%B %Y')}" if mes else f"Año {year}"
+    date_from = f"01/{now.month:02d}/{year}" if mes else f"01/01/{year}"
     date_to   = now.strftime("%d/%m/%Y")
 
-    players = get_top_by_weapon(weapon_name=weapon_upper, limit=20, year=year)
+    weapon_upper = weapon_name.strip().upper()
+    players = get_top_by_weapon(weapon_name=weapon_upper, limit=20, year=year, month=month)
 
     if not players:
         from db.database import db_cursor
@@ -50,16 +50,9 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
             """, (f"%{weapon_name}%",))
             suggestions = [row[0] for row in cur.fetchall()]
 
-        embed = discord.Embed(
-            title=f"❌ Arma no encontrada: `{weapon_name}`",
-            color=0xE74C3C,
-        )
+        embed = discord.Embed(title=f"❌ Arma no encontrada: `{weapon_name}`", color=0xE74C3C)
         if suggestions:
-            embed.add_field(
-                name="¿Quisiste decir?",
-                value="\n".join(f"• `{s}`" for s in suggestions),
-                inline=False,
-            )
+            embed.add_field(name="¿Quisiste decir?", value="\n".join(f"• `{s}`" for s in suggestions), inline=False)
         else:
             embed.description = "No se encontraron kills con esa arma."
         await interaction.followup.send(embed=embed)
@@ -68,13 +61,10 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
     lines = []
     for i, p in enumerate(players):
         flag = _country_flag(p.get("country"))
-        lines.append(
-            f"{_medals(i)} {flag}**{p['name']}** — "
-            f"**{p['weapon_kills']}** kills · {p['matches_played']} partidas"
-        )
+        lines.append(f"{_medals(i)} {flag}**{p['name']}** — **{p['weapon_kills']}** kills · {p['matches_played']} partidas")
 
     embed = discord.Embed(
-        title=f"🔫 Top 20 — {weapon_upper} — Año {year}",
+        title=f"🔫 Top 20 — {weapon_upper} — {label}",
         description="\n".join(lines),
         color=0x5865F2,
     )

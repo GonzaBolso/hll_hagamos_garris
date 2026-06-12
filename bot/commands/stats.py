@@ -44,7 +44,7 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
     year  = now.year
     month = now.month if mes else None
     label = f"{now.strftime('%B %Y')}" if mes else f"Año {year}"
-    date_from = f"01/{now.month:02d}/{year}" if mes else f"01/01/{year}"
+    date_from = f"01/{now.month:02d}/{year}" if mes else None
     date_to   = now.strftime("%d/%m/%Y")
 
     stats = get_player_stats_full(player_id, year=year, month=month)
@@ -57,14 +57,29 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
         await interaction.followup.send(embed=embed)
         return
 
-    weapons = get_player_weapons_stats(player_id, year=year, month=month)
+    weapons    = get_player_weapons_stats(player_id, year=year, month=month)
     top_weapons = list(weapons.items())[:5]
+
+    if date_from is None:
+        from db.database import get_first_match_date
+        date_from = get_first_match_date(year=year)
+
+    # Rankings — solo para año completo (no mes)
+    ranks = {}
+    if not mes:
+        from db.database import get_player_ranks
+        ranks = get_player_ranks(player_id, year=year)
 
     flag  = _country_flag(stats.get("country"))
     name  = stats["name"]
     kd    = float(stats.get("kd_ratio") or 0)
     hours = float(stats.get("total_hours") or 0)
     kph   = round(stats["total_kills"] / hours, 2) if hours > 0 else 0
+    total = ranks.get("total_players", 0)
+
+    def _rank(key: str) -> str:
+        r = ranks.get(key)
+        return f" `#{r}/{total}`" if r else ""
 
     embed = discord.Embed(
         title=f"{flag}📊 Stats de {name} — {label}",
@@ -77,15 +92,29 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
     embed.add_field(name="⏱️ Horas",    value=f"{hours}h",                  inline=True)
     embed.add_field(name="🎯 K/h",      value=str(kph),                     inline=True)
 
-    embed.add_field(name="💀 Kills",    value=str(stats["total_kills"]),    inline=True)
-    embed.add_field(name="☠️ Deaths",   value=str(stats["total_deaths"]),   inline=True)
-    embed.add_field(name="⚔️ KD",       value=str(kd),                      inline=True)
+    embed.add_field(name=f"💀 Kills{_rank('rank_kills')}",   value=str(stats["total_kills"]),  inline=True)
+    embed.add_field(name="☠️ Deaths",                         value=str(stats["total_deaths"]), inline=True)
+    embed.add_field(name=f"⚔️ KD{_rank('rank_kd')}",         value=str(kd),                    inline=True)
 
-    embed.add_field(name="💥 Combate",  value=str(stats["total_combat"]),   inline=True)
-    embed.add_field(name="🗡️ Ataque",   value=str(stats["total_offense"]),  inline=True)
-    embed.add_field(name="🛡️ Defensa",  value=str(stats["total_defense"]),  inline=True)
-    embed.add_field(name="🤝 Apoyo",    value=str(stats["total_support"]),  inline=True)
-    embed.add_field(name="🔪 TKs",      value=str(stats["total_teamkills"]), inline=True)
+    embed.add_field(name=f"💥 Combate{_rank('rank_combat')}",  value=str(stats["total_combat"]),   inline=True)
+    embed.add_field(name=f"🗡️ Ataque{_rank('rank_offense')}",  value=str(stats["total_offense"]),  inline=True)
+    embed.add_field(name=f"🛡️ Defensa{_rank('rank_defense')}",  value=str(stats["total_defense"]),  inline=True)
+    embed.add_field(name=f"🤝 Apoyo{_rank('rank_support')}",   value=str(stats["total_support"]),  inline=True)
+    embed.add_field(name="🔪 TKs",                             value=str(stats["total_teamkills"]), inline=True)
+
+    # Score táctico y de combate con rank
+    score_tac = int(stats["total_offense"] + stats["total_defense"] * 1.75)
+    score_cmb = int(stats["total_combat"]  + stats["total_support"] * 1.75)
+    embed.add_field(
+        name=f"🛡️ Score Táctico{_rank('rank_tactical')}",
+        value=str(score_tac),
+        inline=True,
+    )
+    embed.add_field(
+        name=f"💥 Score Combate{_rank('rank_score_combat')}",
+        value=str(score_cmb),
+        inline=True,
+    )
 
     if top_weapons:
         weapon_lines = "\n".join(

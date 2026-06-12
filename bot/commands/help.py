@@ -10,6 +10,7 @@ async def cmd_help(interaction: discord.Interaction):
     embed.add_field(name="📋 Registro", value=(
         "`/hll register <steam_id>` — Vinculá tu Steam ID con tu cuenta de Discord\n"
         "ej: `/hll register 76561198012345678`"
+        "Si no sos de Steam pedi tu ID a los admins"
     ), inline=False)
     embed.add_field(name="📊 Stats personales", value=(
         "`/stats show` — Tus stats totales del año actual\n"
