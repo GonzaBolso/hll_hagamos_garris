@@ -36,3 +36,6 @@ python main.py collect --notify
 python main.py init-db
 python main.py post-match 2306
 python main.py worker
+
+#
+python main.py collect --pages 34 --full
