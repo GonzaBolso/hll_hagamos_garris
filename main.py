@@ -1,309 +1,254 @@
-#!/usr/bin/env python3
 """
-main.py  –  Punto de entrada de HLL Stats
-Uso:
-    python main.py init-db
-    python main.py collect [--pages N] [--notify]
-    python main.py report-top [--limit N] [--mode kills|hours|kd|efficiency] [--notify]
-    python main.py post-match <match_id>
+discord/webhook.py  –  Envía embeds a Discord via webhook
 """
-import argparse
 import logging
+from datetime import datetime, timezone, timedelta
 
-import time as _time
+import requests
 
-class _UYFormatter(logging.Formatter):
-    """Formatter que muestra hora en Uruguay (UTC-3)."""
-    def converter(self, timestamp):
-        from datetime import datetime, timezone, timedelta
-        return datetime.fromtimestamp(timestamp, tz=timezone(timedelta(hours=-3))).timetuple()
+from config.settings import settings
 
-_handler = logging.StreamHandler()
-_handler.setFormatter(_UYFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
-logging.basicConfig(level=logging.INFO, handlers=[_handler])
-logger = logging.getLogger("hll_stats")
+logger = logging.getLogger(__name__)
 
+TZ_UY = timezone(timedelta(hours=-3))
 
-def cmd_init_db(_args):
-    from db.database import init_db
-    init_db()
-    print("✅ Base de datos inicializada.")
+COLORS = {
+    "allied": 0x3A7EBF,
+    "axis":   0xBF3A3A,
+    "draw":   0x888888,
+    "info":   0x5865F2,
+    "gold":   0xF1C40F,
+    "green":  0x2ECC71,
+    "purple": 0x9B59B6,
+    "orange": 0xE67E22,
+    "red":    0xE74C3C,
+}
 
+TEAM_LABELS = {
+    "allied": "🟦 Aliados",
+    "axis":   "🟥 Eje",
+    "draw":   "⬜ Empate",
+}
 
-def cmd_collect(args):
-    from datetime import datetime, timezone, timedelta
-    from collectors.history_collector import collect_history
-    from notifications.webhook import send_collection_report
-
-    # Ventana horaria: solo entre 15:00 y 03:00 Uruguay (UTC-3)
-    TZ_UY = timezone(timedelta(hours=-3))
-    now = datetime.now(TZ_UY)
-    hour = now.hour
-    if not (hour >= 15 or hour < 3):
-        logger.info("Fuera de ventana horaria (%02d:%02d UY). No se juega, saltando recolección.", hour, now.minute)
-        return
-
-    pages = args.pages
-    logger.info("Iniciando recolección — %s", f"{pages} páginas máx." if pages else "modo incremental")
-    counters = collect_history(max_pages=pages)
-
-    print(
-        f"\n📦 Resultado:\n"
-        f"  Nuevas partidas:      {counters['new_matches']}\n"
-        f"  Ya existían:          {counters['skipped']}\n"
-        f"  Players actualizados: {counters['players_upserted']}\n"
-        f"  Errores:              {counters['errors']}\n"
-    )
-
-    if args.notify:
-        server_name = _get_server_name()
-        send_collection_report(counters, server_name=server_name)
-        print("📣 Reporte enviado a Discord.")
+WEAPON_ICONS = {
+    "MP40":             "🔫",
+    "GEWEHR 43":        "🎯",
+    "KARABINER 98K":    "🔭",
+    "M1 GARAND":        "🪖",
+    "M1A1 THOMPSON":    "💥",
+    "STG44":            "⚡",
+    "M1918A2 BAR":      "🔥",
+    "M3 GREASE GUN":    "🔫",
+    "MK2 GRENADE":      "💣",
+    "PRECISION STRIKE": "🛩️",
+}
 
 
-def _get_server_name() -> str:
-    """Obtiene el short_name del servidor desde la API."""
+def _post(payload: dict) -> bool:
+    if not settings.DISCORD_WEBHOOK_URL:
+        logger.warning("DISCORD_WEBHOOK_URL no configurada.")
+        return False
     try:
-        from collectors.api_client import get_public_info
-        info = get_public_info()
-        return info["name"]["short_name"]
-    except Exception:
-        return "HLL Stats"
+        resp = requests.post(settings.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        logger.error("Error enviando webhook: %s", e)
+        return False
 
 
-def cmd_report_top(args):
-    from db.database import (
-        get_player_totals, get_top_hours, get_top_kd,
-        get_top_kills_per_hour, get_top_score_tactical,
-        get_top_score_combat, get_top_maps,
-    )
-    from notifications.webhook import (
-        send_top_players, send_top_hours, send_top_kd,
-        send_top_efficiency, send_top_score_tactical,
-        send_top_score_combat, send_top_maps,
-    )
-
-    mode     = args.mode
-    limit    = args.limit
-    period   = args.period
-    date_str = getattr(args, 'date', None)
-    server_name = _get_server_name()
-
-    PERIOD_LABELS = {"day": "Hoy", "week": "Esta Semana", "month": "Este Mes", None: "Histórico"}
-    period_label = date_str if date_str else PERIOD_LABELS.get(period, "Histórico")
-
-    if mode == "kills":
-        players = get_player_totals(limit=limit, period=period, date_str=date_str)
-        if not players:
-            print("⚠️  No hay jugadores en la DB.")
-            return
-        print(f"\n🏆 TOP {limit} — KILLS — {period_label.upper()}")
-        print(f"{'#':<4} {'Jugador':<25} {'Kills':>7} {'Deaths':>7} {'KD':>6} {'Partidas':>9}")
-        print("─" * 65)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {p['total_kills']:>7} "
-                  f"{p['total_deaths']:>7} {float(p['overall_kd'] or 0):>6.2f} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_players(players, period_label=period_label, server_name=server_name)
-
-    elif mode == "hours":
-        players = get_top_hours(limit=limit, period=period, date_str=date_str)
-        if not players:
-            print("⚠️  No hay datos de tiempo jugado.")
-            return
-        print(f"\n⏱️  TOP {limit} — HORAS JUGADAS — {period_label.upper()}")
-        print(f"{'#':<4} {'Jugador':<25} {'Horas':>7} {'Kills':>7} {'Partidas':>9}")
-        print("─" * 60)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {float(p['total_hours']):>7.1f} "
-                  f"{p['total_kills']:>7} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_hours(players, period_label=period_label, server_name=server_name)
-
-    elif mode == "kd":
-        players = get_top_kd(limit=limit, min_matches=args.min_matches, period=period, date_str=date_str)
-        if not players:
-            print(f"⚠️  No hay jugadores con {args.min_matches}+ partidas.")
-            return
-        print(f"\n⚔️  TOP {limit} — MEJOR KD — {period_label.upper()} (mín. {args.min_matches} partidas)")
-        print(f"{'#':<4} {'Jugador':<25} {'KD':>6} {'Kills':>7} {'Deaths':>7} {'Partidas':>9}")
-        print("─" * 65)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {float(p['kd_ratio']):>6.2f} "
-                  f"{p['total_kills']:>7} {p['total_deaths']:>7} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_kd(players, min_matches=args.min_matches, period_label=period_label, server_name=server_name)
-
-    elif mode == "efficiency":
-        players = get_top_kills_per_hour(limit=limit, min_hours=args.min_hours, period=period, date_str=date_str)
-        if not players:
-            print(f"⚠️  No hay jugadores con {args.min_hours}+ horas jugadas.")
-            return
-        print(f"\n🎯 TOP {limit} — KILLS/HORA — {period_label.upper()} (mín. {args.min_hours}h)")
-        print(f"{'#':<4} {'Jugador':<25} {'K/h':>6} {'Kills':>7} {'Horas':>7} {'Partidas':>9}")
-        print("─" * 65)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {float(p['kills_per_hour']):>6.2f} "
-                  f"{p['total_kills']:>7} {float(p['total_hours']):>7.1f} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_efficiency(players, min_hours=args.min_hours, period_label=period_label, server_name=server_name)
-
-    elif mode == "tactical":
-        players = get_top_score_tactical(limit=limit, period=period, date_str=date_str)
-        if not players:
-            print("⚠️  No hay datos.")
-            return
-        print(f"\n🛡️  TOP {limit} — ATAQUE + DEFENSA×1.75 — {period_label.upper()}")
-        print(f"{'#':<4} {'Jugador':<25} {'Score':>8} {'Ataque':>8} {'Defensa':>8} {'Partidas':>9}")
-        print("─" * 70)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {int(p['score_tactical']):>8} "
-                  f"{p['total_offense']:>8} {p['total_defense']:>8} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_score_tactical(players, period_label=period_label, server_name=server_name)
-
-    elif mode == "combat":
-        players = get_top_score_combat(limit=limit, period=period, date_str=date_str)
-        if not players:
-            print("⚠️  No hay datos.")
-            return
-        print(f"\n💥 TOP {limit} — COMBATE + APOYO×1.75 — {period_label.upper()}")
-        print(f"{'#':<4} {'Jugador':<25} {'Score':>8} {'Combate':>8} {'Apoyo':>8} {'Partidas':>9}")
-        print("─" * 70)
-        for i, p in enumerate(players, 1):
-            print(f"{i:<4} {p['name']:<25} {int(p['score_combat']):>8} "
-                  f"{p['total_combat']:>8} {p['total_support']:>8} {p['matches_played']:>9}")
-        if args.notify:
-            send_top_score_combat(players, period_label=period_label, server_name=server_name)
-
-    elif mode == "maps":
-        maps = get_top_maps(limit=limit, period=period, date_str=date_str)
-        if not maps:
-            print("⚠️  No hay partidas en la DB.")
-            return
-        print(f"\n🗺️  TOP {limit} — MAPAS MÁS JUGADOS — {period_label.upper()}")
-        print(f"{'#':<4} {'Mapa':<30} {'Partidas':>9} {'Aliados':>8} {'Eje':>6} {'Dur.avg':>8}")
-        print("─" * 70)
-        for i, m in enumerate(maps, 1):
-            print(f"{i:<4} {m['map_name']:<30} {m['total_matches']:>9} "
-                  f"{m['allied_wins']:>8} {m['axis_wins']:>6} {int(m['avg_duration_min'] or 0):>7}m")
-        if args.notify:
-            send_top_maps(maps, period_label=period_label, server_name=server_name)
-
-    if args.notify:
-        print("📣 Ranking enviado a Discord.")
+def _footer(server_name: str) -> dict:
+    return {"text": f"{server_name} · HLL Stats Bot"}
 
 
-def cmd_post_match(args):
-    from db.database import get_recent_matches, get_match_top_players
-    from notifications.webhook import send_match_summary
-
-    match_id = args.match_id
-    matches  = get_recent_matches(limit=100)
-    match    = next((m for m in matches if m["match_id"] == match_id), None)
-
-    if not match:
-        print(f"❌ Match {match_id} no encontrado en la DB.")
-        return
-
-    top = get_match_top_players(match_id, limit=5)
-    ok  = send_match_summary(match, top)
-    print("✅ Enviado a Discord." if ok else "❌ Error al enviar.")
+def _now() -> str:
+    return datetime.now(TZ_UY).isoformat()
 
 
-# ──────────────────────────────────────────────
-# CLI
-# ──────────────────────────────────────────────
-
-def cmd_worker(_args):
-    """Loop infinito: corre collect cada hora. Arranca el bot de Discord en background."""
-    import time
-    import threading
-    from datetime import datetime, timezone, timedelta
-    TZ_UY = timezone(timedelta(hours=-3))
-
-    # Arrancar bot de Discord en thread separado
-    from config.settings import settings as _settings
-    if _settings.BOT_TOKEN:
-        def _run_bot():
-            try:
-                from bot.main_bot import client
-                logger.info("Arrancando bot de Discord...")
-                client.run(_settings.BOT_TOKEN)
-            except Exception as e:
-                logger.error("Error en bot de Discord: %s", e)
-        threading.Thread(target=_run_bot, daemon=True).start()
-    else:
-        logger.warning("BOT_TOKEN no configurado, bot de Discord no iniciado.")
-
-    logger.info("Worker iniciado. Ciclo cada 60 minutos.")
-    while True:
-        now = datetime.now(TZ_UY)
-        logger.info("Ciclo worker — %s", now.strftime("%H:%M UY"))
-
-        class _FakeArgs:
-            pages = None
-            notify = True
-
-        cmd_collect(_FakeArgs())
-
-        logger.info("Próximo ciclo en 60 minutos.")
-        time.sleep(60 * 60)
+def _format_duration(minutes: float | None) -> str:
+    if not minutes:
+        return "?"
+    h, m = divmod(int(minutes), 60)
+    return f"{h}h {m}m" if h else f"{m}m"
 
 
-def main():
-    parser = argparse.ArgumentParser(description="HLL Stats CLI")
-    sub = parser.add_subparsers(dest="command", required=True)
+def _country_flag(country: str | None) -> str:
+    if country and len(country) == 2:
+        return f" :flag_{country.lower()}:"
+    return ""
 
-    # init-db
-    sub.add_parser("init-db", help="Crea las tablas en PostgreSQL")
 
-    # collect
-    p_collect = sub.add_parser("collect", help="Descarga historial y guarda en DB")
-    p_collect.add_argument("--pages", type=int, default=None,
-                           help="Límite de páginas (default: incremental hasta no haber novedades)")
-    p_collect.add_argument("--notify", action="store_true")
+def _medals(i: int) -> str:
+    return ["🥇", "🥈", "🥉"][i] if i < 3 else "🔹"
 
-    # report-top
-    p_top = sub.add_parser("report-top", help="Muestra / postea rankings")
-    p_top.add_argument("--limit", type=int, default=10)
-    p_top.add_argument(
-        "--mode",
-        choices=["kills", "hours", "kd", "efficiency", "tactical", "combat", "maps"],
-        default="kills",
-        help="kills | hours | kd | efficiency | tactical | combat | maps",
-    )
-    p_top.add_argument(
-        "--period",
-        choices=["day", "week", "month"],
-        default=None,
-        help="Período: day=hoy | week=7 días | month=30 días | (sin valor)=histórico",
-    )
-    p_top.add_argument("--date", type=str, default=None,
-                       help="Fecha específica en formato YYYY-MM-DD (ej: 2026-06-10)")
-    p_top.add_argument("--min-matches", type=int, default=5,
-                       help="Mínimo de partidas para el ranking KD (default: 10)")
-    p_top.add_argument("--min-hours", type=float, default=2.0,
-                       help="Mínimo de horas para el ranking efficiency (default: 2)")
-    p_top.add_argument("--notify", action="store_true")
 
-    # worker
-    sub.add_parser("worker", help="Loop infinito: collect cada hora")
-
-    # post-match
-    p_pm = sub.add_parser("post-match", help="Postea resumen de una partida")
-    p_pm.add_argument("match_id", type=int)
-
-    args = parser.parse_args()
-    commands = {
-        "init-db":    cmd_init_db,
-        "collect":    cmd_collect,
-        "report-top": cmd_report_top,
-        "post-match": cmd_post_match,
-        "worker":     cmd_worker,
+def _player_line(i: int, p: dict, stat: str) -> dict:
+    """
+    Genera un embed field por jugador con avatar como thumbnail.
+    stat: el texto de la stat principal ya formateado.
+    """
+    flag   = _country_flag(p.get("country"))
+    avatar = p.get("avatar_url") or p.get("avatar") or None
+    name   = p.get("name", "?")
+    parts  = p.get("matches_played", 0)
+    return {
+        "medal":   _medals(i),
+        "flag":    flag,
+        "name":    name,
+        "stat":    stat,
+        "parts":   parts,
+        "avatar":  avatar,
     }
-    commands[args.command](args)
 
 
-if __name__ == "__main__":
-    main()
+def _build_ranking_embed(title: str, lines: list[str], color: int,
+                          server_name: str, thumbnail_url: str | None = None) -> dict:
+    embed = {
+        "title":       title,
+        "description": "\n".join(lines),
+        "color":       color,
+        "footer":      _footer(server_name),
+        "timestamp":   _now(),
+    }
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
+    return embed
+
+
+# ──────────────────────────────────────────────
+# Embeds de colección y match
+# ──────────────────────────────────────────────
+
+def send_match_summary(match: dict, top_players: list[dict],
+                       server_name: str = "HLL Stats") -> bool:
+    winner     = match.get("winner", "draw")
+    color      = COLORS.get(winner, COLORS["info"])
+    winner_lbl = TEAM_LABELS.get(winner, "Empate")
+    duration   = _format_duration(match.get("duration_minutes"))
+
+    start = match.get("start_time")
+    ts = f"<t:{int(start.timestamp())}:F>" if isinstance(start, datetime) else str(start or "?")
+
+    fields = [
+        {"name": "📋 Mapa",      "value": f"{match.get('map_name','?')} — *{match.get('game_mode','?')}*", "inline": True},
+        {"name": "⏱️ Duración",  "value": duration, "inline": True},
+        {"name": "🏆 Resultado", "value": f"{winner_lbl}\n🟦 {match.get('score_allied',0)}  —  {match.get('score_axis',0)} 🟥", "inline": False},
+        {"name": "👥 Jugadores / Bajas", "value": f"{match.get('players_count',0)} jugadores · {match.get('total_kills',0)} kills totales", "inline": False},
+    ]
+
+    if top_players:
+        lines = []
+        for i, p in enumerate(top_players[:5]):
+            side   = "🟦" if p.get("team_side") == "allied" else "🟥" if p.get("team_side") == "axis" else "⬜"
+            kd     = p.get("kill_death_ratio", 0)
+            weapons = p.get("weapons") or {}
+            top_w  = max(weapons, key=weapons.get, default=None) if weapons else None
+            gun    = f" · {WEAPON_ICONS.get(top_w,'🔫')} {top_w}" if top_w else ""
+            lines.append(f"{_medals(i)} {side} **{p['player_name']}** — {p.get('kills',0)}K/{p.get('deaths',0)}D (KD {kd:.2f}){gun}")
+        fields.append({"name": "🎖️ Top Jugadores", "value": "\n".join(lines), "inline": False})
+
+    payload = {"embeds": [{"title": "📊 Resumen de Partida", "description": f"🗓️ {ts}",
+                "color": color, "fields": fields,
+                "footer": _footer(server_name), "timestamp": _now()}]}
+    return _post(payload)
+
+
+def send_collection_report(counters: dict, server_name: str = "HLL Stats") -> bool:
+    payload = {"embeds": [{"title": "🔄 Recolección de historial completada", "color": COLORS["info"],
+                "fields": [
+                    {"name": "✅ Partidas nuevas",     "value": str(counters.get("new_matches", 0)),      "inline": True},
+                    {"name": "⏭️ Ya existían",          "value": str(counters.get("skipped", 0)),          "inline": True},
+                    {"name": "👤 Players actualizados", "value": str(counters.get("players_upserted", 0)), "inline": True},
+                    {"name": "❌ Errores",              "value": str(counters.get("errors", 0)),            "inline": True},
+                ],
+                "footer": _footer(server_name), "timestamp": _now()}]}
+    return _post(payload)
+
+
+# ──────────────────────────────────────────────
+# Rankings de jugadores
+# ──────────────────────────────────────────────
+
+def _player_lines(players: list[dict], stat_fn) -> tuple[list[str], str | None]:
+    """Genera líneas de texto y thumbnail del #1."""
+    lines = []
+    thumbnail = None
+    for i, p in enumerate(players):
+        if i == 0:
+            thumbnail = p.get("avatar_url")
+        flag = _country_flag(p.get("country"))
+        lines.append(f"{_medals(i)}{flag} **{p['name']}** — {stat_fn(p)} · {p.get('matches_played',0)} partidas")
+    return lines, thumbnail
+
+
+def send_top_players(players: list[dict], period_label: str = "Histórico",
+                     server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"{p.get('total_kills',0)}K/{p.get('total_deaths',0)}D · KD **{p.get('overall_kd',0)}**")
+    embed = _build_ranking_embed(f"💀 Top Kills — {period_label}", lines, COLORS["info"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+def send_top_hours(players: list[dict], period_label: str = "Histórico",
+                   server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"⏱️ **{p.get('total_hours',0)}h** · {p.get('total_kills',0)} kills")
+    embed = _build_ranking_embed(f"⏱️ Top Horas Jugadas — {period_label}", lines, COLORS["green"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+def send_top_kd(players: list[dict], min_matches: int = 5, period_label: str = "Histórico",
+                server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"KD **{p.get('kd_ratio',0)}** · {p.get('total_kills',0)}K/{p.get('total_deaths',0)}D")
+    embed = _build_ranking_embed(f"⚔️ Top KD — {period_label} (mín. {min_matches} partidas)",
+                                  lines, COLORS["gold"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+def send_top_efficiency(players: list[dict], min_hours: float = 1.0, period_label: str = "Histórico",
+                        server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"🎯 **{p.get('kills_per_hour',0)} K/h** · {p.get('total_kills',0)} kills en {p.get('total_hours',0)}h")
+    embed = _build_ranking_embed(f"🎯 Top Eficiencia K/h — {period_label} (mín. {min_hours}h)",
+                                  lines, COLORS["purple"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+def send_top_score_tactical(players: list[dict], period_label: str = "Histórico",
+                             server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"🛡️ **{int(p.get('score_tactical',0))} pts** · Atq {p.get('total_offense',0)} / Def {p.get('total_defense',0)}")
+    embed = _build_ranking_embed(f"🛡️ Top Táctico — {period_label} (Ataque + Defensa×1.75)",
+                                  lines, COLORS["orange"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+def send_top_score_combat(players: list[dict], period_label: str = "Histórico",
+                           server_name: str = "HLL Stats") -> bool:
+    lines, thumb = _player_lines(players, lambda p:
+        f"💥 **{int(p.get('score_combat',0))} pts** · Cmb {p.get('total_combat',0)} / Apo {p.get('total_support',0)}")
+    embed = _build_ranking_embed(f"💥 Top Combate — {period_label} (Combate + Apoyo×1.75)",
+                                  lines, COLORS["red"], server_name, thumb)
+    return _post({"embeds": [embed]})
+
+
+# ──────────────────────────────────────────────
+# Ranking de mapas
+# ──────────────────────────────────────────────
+
+def send_top_maps(maps: list[dict], period_label: str = "Histórico",
+                  server_name: str = "HLL Stats") -> bool:
+    if not maps:
+        return False
+    lines = []
+    for i, m in enumerate(maps):
+        dur = f"{int(m.get('avg_duration_min') or 0)}min"
+        lines.append(
+            f"{_medals(i)} **{m['map_name']}** — "
+            f"🎮 {m['total_matches']} partidas · "
+            f"🟦 {m['allied_wins']} / 🟥 {m['axis_wins']} · "
+            f"⏱️ {dur} prom."
+        )
+    embed = _build_ranking_embed(f"🗺️ Mapas Más Jugados — {period_label}", lines, COLORS["info"], server_name)
+    return _post({"embeds": [embed]})
