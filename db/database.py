@@ -393,3 +393,183 @@ def get_match_top_players(match_id: int, limit: int = 5) -> list[dict]:
     with db_cursor(commit=False) as cur:
         cur.execute(sql, (match_id, limit))
         return [dict(row) for row in cur.fetchall()]
+
+
+# ──────────────────────────────────────────────
+# Discord ↔ Steam registro
+# ──────────────────────────────────────────────
+
+def register_discord_player(discord_id: str, discord_name: str, player_id: str) -> bool:
+    """Registra o actualiza el link Discord ↔ Steam. Retorna True si es nuevo."""
+    sql = """
+        INSERT INTO discord_players (discord_id, discord_name, player_id, updated_at)
+        VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (discord_id) DO UPDATE SET
+            discord_name = EXCLUDED.discord_name,
+            player_id    = EXCLUDED.player_id,
+            updated_at   = NOW()
+        RETURNING (xmax = 0) AS is_new
+    """
+    with db_cursor() as cur:
+        cur.execute(sql, (discord_id, discord_name, player_id))
+        row = cur.fetchone()
+        return row and row[0]
+
+
+def get_player_id_by_discord(discord_id: str) -> str | None:
+    """Devuelve el player_id (Steam ID) asociado a un discord_id."""
+    with db_cursor(commit=False) as cur:
+        cur.execute("SELECT player_id FROM discord_players WHERE discord_id = %s", (discord_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def get_player_stats_full(player_id: str, year: int | None = None, month: int | None = None) -> dict | None:
+    """Stats totales de un jugador filtradas por año/mes."""
+    conditions = ["mps.player_id = %s"]
+    params = [player_id]
+    if year:
+        conditions.append("EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(year)
+    if month:
+        conditions.append("EXTRACT(MONTH FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(month)
+
+    where = " AND ".join(conditions)
+    sql = f"""
+        SELECT
+            p.name, p.country, p.avatar_url,
+            COUNT(DISTINCT mps.match_id)                              AS matches_played,
+            SUM(mps.kills)                                            AS total_kills,
+            SUM(mps.deaths)                                           AS total_deaths,
+            CASE WHEN SUM(mps.deaths) > 0
+                 THEN ROUND(SUM(mps.kills)::numeric / SUM(mps.deaths), 2)
+                 ELSE SUM(mps.kills) END                              AS kd_ratio,
+            ROUND(SUM(mps.time_seconds) / 3600.0, 1)                 AS total_hours,
+            SUM(mps.kills_streak)                                     AS best_streak,
+            SUM(mps.combat)                                           AS total_combat,
+            SUM(mps.offense)                                          AS total_offense,
+            SUM(mps.defense)                                          AS total_defense,
+            SUM(mps.support)                                          AS total_support,
+            SUM(mps.teamkills)                                        AS total_teamkills
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE {where}
+        GROUP BY p.player_id, p.name, p.country, p.avatar_url
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_player_weapons_stats(player_id: str, year: int | None = None, month: int | None = None) -> dict:
+    """Agrega kills por arma para un jugador."""
+    conditions = ["mps.player_id = %s"]
+    params = [player_id]
+    if year:
+        conditions.append("EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(year)
+    if month:
+        conditions.append("EXTRACT(MONTH FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(month)
+
+    where = " AND ".join(conditions)
+    sql = f"""
+        SELECT weapons
+        FROM match_player_stats mps
+        JOIN matches m USING (match_id)
+        WHERE {where}
+    """
+    import json
+    totals: dict = {}
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, params)
+        for row in cur.fetchall():
+            w = row[0]
+            if isinstance(w, str):
+                w = json.loads(w)
+            if isinstance(w, dict):
+                for weapon, kills in w.items():
+                    totals[weapon] = totals.get(weapon, 0) + int(kills)
+    return dict(sorted(totals.items(), key=lambda x: x[1], reverse=True))
+
+
+def get_player_recent_games(player_id: str, limit: int = 5) -> list[dict]:
+    """Últimas N partidas de un jugador."""
+    sql = """
+        SELECT
+            m.map_name, m.start_time, m.winner,
+            mps.kills, mps.deaths, mps.kill_death_ratio,
+            mps.combat, mps.offense, mps.defense, mps.support,
+            mps.time_seconds, mps.team_side, mps.weapons
+        FROM match_player_stats mps
+        JOIN matches m USING (match_id)
+        WHERE mps.player_id = %s
+        ORDER BY m.start_time DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (player_id, limit))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_top_by_weapon(weapon_name: str, limit: int = 20, year: int | None = None) -> list[dict]:
+    """Top jugadores por kills con un arma específica."""
+    conditions = []
+    params = []
+    if year:
+        conditions.append("EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
+        params.append(year)
+
+    year_join = f"JOIN matches m USING (match_id)" if year else "JOIN matches m USING (match_id)"
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    sql = f"""
+        SELECT
+            p.name, p.country, p.avatar_url,
+            SUM((mps.weapons->>%s)::int)  AS weapon_kills,
+            COUNT(DISTINCT mps.match_id)  AS matches_played
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        {year_join}
+        {where}
+        WHERE mps.weapons ? %s
+        GROUP BY p.player_id, p.name, p.country, p.avatar_url
+        HAVING SUM((mps.weapons->>%s)::int) > 0
+        ORDER BY weapon_kills DESC
+        LIMIT %s
+    """
+    # La query tiene dos WHERE, hay que arreglarla
+    sql = f"""
+        SELECT
+            p.name, p.country, p.avatar_url,
+            SUM((mps.weapons->>%s)::int)  AS weapon_kills,
+            COUNT(DISTINCT mps.match_id)  AS matches_played
+        FROM match_player_stats mps
+        JOIN players p USING (player_id)
+        JOIN matches m USING (match_id)
+        WHERE mps.weapons ? %s
+        {"AND " + " AND ".join(conditions) if conditions else ""}
+        GROUP BY p.player_id, p.name, p.country, p.avatar_url
+        HAVING SUM((mps.weapons->>%s)::int) > 0
+        ORDER BY weapon_kills DESC
+        LIMIT %s
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, [weapon_name, weapon_name] + params + [weapon_name, limit])
+        return [dict(row) for row in cur.fetchall()]
+
+
+def search_player_by_name(name: str) -> list[dict]:
+    """Busca jugadores por nombre (case-insensitive, parcial)."""
+    sql = """
+        SELECT player_id, name, country, avatar_url
+        FROM players
+        WHERE name ILIKE %s
+        LIMIT 10
+    """
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, (f"%{name}%",))
+        return [dict(row) for row in cur.fetchall()]

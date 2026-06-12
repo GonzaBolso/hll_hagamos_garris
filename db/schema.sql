@@ -121,3 +121,14 @@ FROM matches m
 LEFT JOIN match_player_stats mps USING (match_id)
 GROUP BY m.match_id
 ORDER BY m.start_time DESC;
+
+-- Tabla de registro Discord ↔ Steam
+CREATE TABLE IF NOT EXISTS discord_players (
+    discord_id      TEXT PRIMARY KEY,
+    discord_name    TEXT,
+    player_id       TEXT NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+    registered_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_discord_players_player ON discord_players(player_id);

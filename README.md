@@ -132,3 +132,33 @@ ORDER BY m.start_time DESC;
 - Comando `!stats <jugador>` via bot de Discord (discord.py)
 - Dashboard web con FastAPI + Chart.js
 - Detección automática de partidas nuevas y post inmediato
+
+
+```sql
+#PARA DESPUES
+Comandos en discord para mostrar sus stats
+
+Crear un canal el cual usa otro webhook para que los jugadores puedan usar los comandos y mostrarlos alli mismo
+
+
+/hll help -> muestra los comandos con descripcion
+
+
+/hll register -Registrar el jugador por steam ID, para el caso de que no sea steamID pedir el ID de consola
+
+/stats show -> Muestra total de stats del jugador desde el principio del año actual
+
+/leaderboard -> /rank_kills top 20 jugadores por kills desde principio de año actual
+
+/weapon weapon_name: nombre
+
+/stats games -> muestra las stats de las ultimas 5 partidas para el usuario
+
+kills, weapon con mas kills, deaths, combat, atack, defense, support
+
+/hll vip -> ver el tiempo que tiene el jugador de vip
+
+/hll seeder -> muestra las horas de seed sin reclamar
+
+/hlll claim $HOUR -> Reclama las horas colocadas si tiene en /hll seeder y las descuenta, se le agrega vip de x dias segun las horas 1dia de vip por hora
+```
