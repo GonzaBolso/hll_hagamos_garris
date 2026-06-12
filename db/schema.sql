@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS players (
 -- Migración: agregar avatar_url si la tabla ya existe
 ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 
+-- Recrear vista con avatar_url (DROP necesario para cambiar columnas)
+DROP VIEW IF EXISTS player_totals;
+
 -- Mapas / partidas históricas
 CREATE TABLE IF NOT EXISTS matches (
     match_id        INTEGER PRIMARY KEY,
