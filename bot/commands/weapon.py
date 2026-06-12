@@ -33,7 +33,7 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str, mes: bo
     year  = now.year
     month = now.month if mes else None
     label = f"{now.strftime('%B %Y')}" if mes else f"Año {year}"
-    date_from = f"01/{now.month:02d}/{year}" if mes else f"01/01/{year}"
+    date_from = f"01/{now.month:02d}/{year}" if mes else None
     date_to   = now.strftime("%d/%m/%Y")
 
     weapon_upper = weapon_name.strip().upper()
@@ -57,6 +57,10 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str, mes: bo
             embed.description = "No se encontraron kills con esa arma."
         await interaction.followup.send(embed=embed)
         return
+
+    if date_from is None:
+        from db.database import get_first_match_date
+        date_from = get_first_match_date(year=year)
 
     lines = []
     for i, p in enumerate(players):

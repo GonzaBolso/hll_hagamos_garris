@@ -27,7 +27,8 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
     if mes:
         date_from = f"01/{now.month:02d}/{year}"
     else:
-        date_from = f"01/01/{year}"
+        from db.database import get_first_match_date
+        date_from = get_first_match_date(year=year)
     date_to = now.strftime("%d/%m/%Y")
 
     conditions = ["EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s"]
