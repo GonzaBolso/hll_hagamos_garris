@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 def _parse_match(raw: dict) -> dict:
-    m = raw["map"]
+    m      = raw["map"]
+    result = raw.get("result") or {}
     return {
         "match_id":    raw["id"],
         "map_id":      m["id"],
@@ -33,8 +34,8 @@ def _parse_match(raw: dict) -> dict:
         "environment": m.get("environment", "day"),
         "start_time":  raw.get("start"),
         "end_time":    raw.get("end"),
-        "score_allied": raw["result"]["allied"],
-        "score_axis":   raw["result"]["axis"],
+        "score_allied": result.get("allied", 0),
+        "score_axis":   result.get("axis", 0),
     }
 
 
