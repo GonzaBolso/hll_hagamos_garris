@@ -216,10 +216,25 @@ def cmd_post_match(args):
 # ──────────────────────────────────────────────
 
 def cmd_worker(_args):
-    """Loop infinito: corre collect cada hora."""
+    """Loop infinito: corre collect cada hora. Arranca el bot de Discord en background."""
     import time
+    import threading
     from datetime import datetime, timezone, timedelta
     TZ_UY = timezone(timedelta(hours=-3))
+
+    # Arrancar bot de Discord en thread separado
+    from config.settings import settings as _settings
+    if _settings.BOT_TOKEN:
+        def _run_bot():
+            try:
+                from bot.main_bot import client
+                logger.info("Arrancando bot de Discord...")
+                client.run(_settings.BOT_TOKEN)
+            except Exception as e:
+                logger.error("Error en bot de Discord: %s", e)
+        threading.Thread(target=_run_bot, daemon=True).start()
+    else:
+        logger.warning("BOT_TOKEN no configurado, bot de Discord no iniciado.")
 
     logger.info("Worker iniciado. Ciclo cada 60 minutos.")
     while True:
