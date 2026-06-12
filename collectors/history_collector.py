@@ -91,23 +91,22 @@ def _parse_player_identity(raw: dict) -> tuple[str, str | None, str | None, int 
 # Lógica principal
 # ──────────────────────────────────────────────
 
-def collect_history(max_pages: int | None = None) -> dict[str, int]:
+def collect_history(max_pages: int | None = None, full: bool = False) -> dict[str, int]:
     """
     Descarga el historial de partidas y lo guarda en la DB.
-    Modo incremental: si encuentra una página donde TODAS las partidas
-    ya están en la DB, para (no hay más novedades).
+    Modo incremental: para cuando encuentra una página sin partidas nuevas.
+    Modo full (--full): procesa todas las páginas sin importar si ya existen.
 
     Parámetros:
-        max_pages: límite de páginas (None = sin límite, solo para hasta
-                   encontrar partidas conocidas)
-
-    Retorna un dict con contadores: new_matches, skipped, players_upserted, errors
+        max_pages: límite de páginas
+        full: si True, ignora el modo incremental y recorre todas las páginas
     """
     page_size = settings.PAGE_SIZE
     known_ids = get_match_ids_in_db()
     counters  = {"new_matches": 0, "skipped": 0, "players_upserted": 0, "errors": 0}
 
-    logger.info("Iniciando recolección de historial. IDs ya en DB: %d", len(known_ids))
+    logger.info("Iniciando recolección de historial. IDs ya en DB: %d — modo: %s",
+                len(known_ids), "full" if full else "incremental")
 
     page = 1
     while True:
@@ -138,7 +137,6 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
                 counters["skipped"] += 1
                 continue
 
-            # 1. Guardar cabecera de la partida
             match_data = _parse_match(raw_match)
             is_new = upsert_match(match_data)
 
@@ -146,7 +144,6 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
                 counters["skipped"] += 1
                 continue
 
-            # 2. Obtener detalle con player_stats
             try:
                 detail = get_map_scoreboard(match_id)
             except Exception as e:
@@ -170,9 +167,8 @@ def collect_history(max_pages: int | None = None) -> dict[str, int]:
             known_ids.add(match_id)
             logger.debug("Match %d guardado (%s).", match_id, match_data["map_name"])
 
-        # Si ninguna partida de esta página fue nueva, ya alcanzamos
-        # el historial conocido → no tiene sentido seguir paginando
-        if new_in_page == 0:
+        # En modo incremental, para cuando no hay novedades
+        if not full and new_in_page == 0:
             logger.info("Página %d sin partidas nuevas. Recolección incremental completa.", page)
             break
 

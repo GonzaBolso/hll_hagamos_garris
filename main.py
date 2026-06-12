@@ -44,8 +44,11 @@ def cmd_collect(args):
         return
 
     pages = args.pages
-    logger.info("Iniciando recolección — %s", f"{pages} páginas máx." if pages else "modo incremental")
-    counters = collect_history(max_pages=pages)
+    full  = getattr(args, 'full', False)
+    logger.info("Iniciando recolección — %s%s",
+                f"{pages} páginas máx." if pages else "modo incremental",
+                " [FULL]" if full else "")
+    counters = collect_history(max_pages=pages, full=full)
 
     print(
         f"\n📦 Resultado:\n"
@@ -265,6 +268,8 @@ def main():
     p_collect = sub.add_parser("collect", help="Descarga historial y guarda en DB")
     p_collect.add_argument("--pages", type=int, default=None,
                            help="Límite de páginas (default: incremental hasta no haber novedades)")
+    p_collect.add_argument("--full", action="store_true",
+                           help="Recorrer todas las páginas sin parar en partidas conocidas")
     p_collect.add_argument("--notify", action="store_true")
 
     # report-top
