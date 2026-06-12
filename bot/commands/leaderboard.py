@@ -2,8 +2,6 @@ from datetime import datetime, timezone, timedelta
 
 import discord
 
-from db.database import get_player_totals
-
 TZ_UY = timezone(timedelta(hours=-3))
 
 
@@ -25,14 +23,16 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
     month = now.month if mes else None
     label = f"{now.strftime('%B %Y')}" if mes else f"Año {year}"
 
-    # Usamos period=None pero filtramos por año/mes con date_str logic
-    # Para año usamos _period_filter extendido — llamamos directo a la query con año
-    from db.database import db_cursor, _date_filter
-    conditions = ["TRUE"]
-    params: list = []
+    # Fechas del período
+    if mes:
+        date_from = f"01/{now.month:02d}/{year}"
+    else:
+        date_from = f"01/01/{year}"
+    date_to = now.strftime("%d/%m/%Y")
 
-    conditions.append("EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
-    params.append(year)
+    conditions = ["EXTRACT(YEAR FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s"]
+    params: list = [year]
+
     if month:
         conditions.append("EXTRACT(MONTH FROM m.start_time AT TIME ZONE 'America/Montevideo') = %s")
         params.append(month)
@@ -55,6 +55,7 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
         ORDER BY total_kills DESC
         LIMIT 20
     """
+    from db.database import db_cursor
     with db_cursor(commit=False) as cur:
         cur.execute(sql, params)
         players = [dict(row) for row in cur.fetchall()]
@@ -82,5 +83,5 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
         description="\n".join(lines),
         color=0x5865F2,
     )
-    embed.set_footer(text="[LATAM] Hagamos Garris · HLL Stats Bot")
+    embed.set_footer(text=f"📅 Desde {date_from} hasta {date_to}  •  [LATAM] Hagamos Garris · HLL Stats Bot")
     await interaction.followup.send(embed=embed)

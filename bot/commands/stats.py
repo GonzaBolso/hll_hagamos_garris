@@ -44,6 +44,8 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
     year  = now.year
     month = now.month if mes else None
     label = f"{now.strftime('%B %Y')}" if mes else f"Año {year}"
+    date_from = f"01/{now.month:02d}/{year}" if mes else f"01/01/{year}"
+    date_to   = now.strftime("%d/%m/%Y")
 
     stats = get_player_stats_full(player_id, year=year, month=month)
     if not stats:
@@ -92,7 +94,7 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
         )
         embed.add_field(name="🔫 Top Armas", value=weapon_lines, inline=False)
 
-    embed.set_footer(text="[LATAM] Hagamos Garris · HLL Stats Bot")
+    embed.set_footer(text=f"📅 Desde {date_from} hasta {date_to}  •  [LATAM] Hagamos Garris · HLL Stats Bot")
     await interaction.followup.send(embed=embed)
 
 
@@ -146,5 +148,6 @@ async def cmd_stats_games(interaction: discord.Interaction):
             inline=False,
         )
 
-    embed.set_footer(text="[LATAM] Hagamos Garris · HLL Stats Bot")
+    now_str = datetime.now(TZ_UY).strftime("%d/%m/%Y")
+    embed.set_footer(text=f"📅 Consultado al {now_str}  •  [LATAM] Hagamos Garris · HLL Stats Bot")
     await interaction.followup.send(embed=embed)

@@ -1,8 +1,9 @@
 from datetime import datetime, timezone, timedelta
 
 import discord
+from discord import app_commands
 
-from db.database import get_top_by_weapon
+from db.database import get_top_by_weapon, get_weapons_autocomplete
 
 TZ_UY = timezone(timedelta(hours=-3))
 
@@ -17,16 +18,28 @@ def _country_flag(country: str | None) -> str:
     return ""
 
 
+async def weapon_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    try:
+        weapons = get_weapons_autocomplete(current.upper(), limit=10)
+        return [app_commands.Choice(name=w, value=w) for w in weapons]
+    except Exception:
+        return []
+
+
 async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
     await interaction.response.defer()
 
-    year = datetime.now(TZ_UY).year
+    now  = datetime.now(TZ_UY)
+    year = now.year
     weapon_upper = weapon_name.strip().upper()
+
+    # Fechas del período
+    date_from = f"01/01/{year}"
+    date_to   = now.strftime("%d/%m/%Y")
 
     players = get_top_by_weapon(weapon_name=weapon_upper, limit=20, year=year)
 
     if not players:
-        # Intentar búsqueda case-insensitive desde la DB
         from db.database import db_cursor
         with db_cursor(commit=False) as cur:
             cur.execute("""
@@ -48,7 +61,7 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
                 inline=False,
             )
         else:
-            embed.description = "No se encontraron kills con esa arma. Verificá el nombre exacto."
+            embed.description = "No se encontraron kills con esa arma."
         await interaction.followup.send(embed=embed)
         return
 
@@ -67,5 +80,5 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
     )
     if players[0].get("avatar_url"):
         embed.set_thumbnail(url=players[0]["avatar_url"])
-    embed.set_footer(text="[LATAM] Hagamos Garris · HLL Stats Bot")
+    embed.set_footer(text=f"📅 Desde {date_from} hasta {date_to}  •  [LATAM] Hagamos Garris · HLL Stats Bot")
     await interaction.followup.send(embed=embed)

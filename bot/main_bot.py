@@ -25,6 +25,11 @@ tree    = app_commands.CommandTree(client)
 GUILD   = discord.Object(id=settings.GUILD_ID)
 
 
+async def weapon_autocomplete_cb(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    from bot.commands.weapon import weapon_autocomplete
+    return await weapon_autocomplete(interaction, current)
+
+
 def _check_channel(interaction: discord.Interaction) -> bool:
     if settings.CHANNEL_ID and interaction.channel_id != settings.CHANNEL_ID:
         return False
@@ -95,6 +100,7 @@ async def leaderboard(interaction: discord.Interaction, mes: bool = False):
 
 @tree.command(name="weapon", description="Top 20 jugadores con un arma específica", guild=GUILD)
 @app_commands.describe(weapon_name="Nombre del arma (ej: M1 GARAND, MP40, STG44)")
+@app_commands.autocomplete(weapon_name=weapon_autocomplete_cb)
 async def weapon(interaction: discord.Interaction, weapon_name: str):
     if not _check_channel(interaction):
         await interaction.response.send_message(f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)

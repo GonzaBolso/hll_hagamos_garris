@@ -573,3 +573,30 @@ def search_player_by_name(name: str) -> list[dict]:
     with db_cursor(commit=False) as cur:
         cur.execute(sql, (f"%{name}%",))
         return [dict(row) for row in cur.fetchall()]
+
+
+def get_weapons_autocomplete(query: str, limit: int = 10) -> list[str]:
+    """Devuelve armas que coincidan con el query. Si está vacío, top armas por uso."""
+    if query:
+        sql = """
+            SELECT DISTINCT jsonb_object_keys(weapons) AS weapon
+            FROM match_player_stats
+            WHERE weapons::text ILIKE %s
+            ORDER BY weapon
+            LIMIT %s
+        """
+        params = [f"%{query}%", limit]
+    else:
+        # Top armas por kills totales
+        sql = """
+            SELECT key AS weapon
+            FROM match_player_stats,
+                 jsonb_each_text(weapons) AS w(key, val)
+            GROUP BY key
+            ORDER BY SUM(val::int) DESC
+            LIMIT %s
+        """
+        params = [limit]
+    with db_cursor(commit=False) as cur:
+        cur.execute(sql, params)
+        return [row[0] for row in cur.fetchall()]
