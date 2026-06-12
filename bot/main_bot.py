@@ -9,8 +9,8 @@ import os
 # Agregar raíz al path para imports relativos
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import discord
-from discord import app_commands
+import notifications
+from notifications import app_commands
 
 from config.settings import settings
 
@@ -25,13 +25,13 @@ logger = logging.getLogger("hll_bot")
 # Setup del cliente
 # ──────────────────────────────────────────────
 
-intents = discord.Intents.default()
-client  = discord.Client(intents=intents)
+intents = notifications.Intents.default()
+client  = notifications.Client(intents=intents)
 tree    = app_commands.CommandTree(client)
-GUILD   = discord.Object(id=settings.GUILD_ID)
+GUILD   = notifications.Object(id=settings.GUILD_ID)
 
 
-def _check_channel(interaction: discord.Interaction) -> bool:
+def _check_channel(interaction: notifications.Interaction) -> bool:
     """Restringe comandos al canal configurado."""
     if settings.CHANNEL_ID and interaction.channel_id != settings.CHANNEL_ID:
         return False
@@ -46,7 +46,7 @@ hll_group = app_commands.Group(name="hll", description="Comandos HLL Stats")
 
 
 @hll_group.command(name="help", description="Muestra todos los comandos disponibles")
-async def hll_help(interaction: discord.Interaction):
+async def hll_help(interaction: notifications.Interaction):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
@@ -57,7 +57,7 @@ async def hll_help(interaction: discord.Interaction):
 
 @hll_group.command(name="register", description="Vinculá tu Steam ID con tu cuenta de Discord")
 @app_commands.describe(steam_id="Tu Steam ID de 64 bits (ej: 76561198012345678)")
-async def hll_register(interaction: discord.Interaction, steam_id: str):
+async def hll_register(interaction: notifications.Interaction, steam_id: str):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
@@ -78,7 +78,7 @@ stats_group = app_commands.Group(name="stats", description="Tus estadísticas pe
 
 @stats_group.command(name="show", description="Tus stats del año actual (o mes actual)")
 @app_commands.describe(mes="True para ver solo este mes")
-async def stats_show(interaction: discord.Interaction, mes: bool = False):
+async def stats_show(interaction: notifications.Interaction, mes: bool = False):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
@@ -88,7 +88,7 @@ async def stats_show(interaction: discord.Interaction, mes: bool = False):
 
 
 @stats_group.command(name="games", description="Tus últimas 5 partidas")
-async def stats_games(interaction: discord.Interaction):
+async def stats_games(interaction: notifications.Interaction):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
@@ -106,7 +106,7 @@ tree.add_command(stats_group, guild=GUILD)
 
 @tree.command(name="leaderboard", description="Top 20 jugadores por kills", guild=GUILD)
 @app_commands.describe(mes="True para ver solo este mes")
-async def leaderboard(interaction: discord.Interaction, mes: bool = False):
+async def leaderboard(interaction: notifications.Interaction, mes: bool = False):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)
@@ -121,7 +121,7 @@ async def leaderboard(interaction: discord.Interaction, mes: bool = False):
 
 @tree.command(name="weapon", description="Top 20 jugadores con un arma específica", guild=GUILD)
 @app_commands.describe(weapon_name="Nombre del arma (ej: M1 GARAND, MP40, STG44)")
-async def weapon(interaction: discord.Interaction, weapon_name: str):
+async def weapon(interaction: notifications.Interaction, weapon_name: str):
     if not _check_channel(interaction):
         await interaction.response.send_message(
             f"❌ Este comando solo funciona en <#{settings.CHANNEL_ID}>", ephemeral=True)

@@ -1,5 +1,5 @@
 """
-discord/webhook.py  –  Envía embeds a Discord via webhook
+notifications/webhook.py  –  Envía embeds a Discord via webhook
 """
 import logging
 from datetime import datetime, timezone, timedelta

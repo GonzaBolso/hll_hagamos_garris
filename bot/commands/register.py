@@ -1,13 +1,13 @@
-import discord
+import notifications
 from db.database import register_discord_player, search_player_by_name
 
 
-async def cmd_register(interaction: discord.Interaction, steam_id: str):
+async def cmd_register(interaction: notifications.Interaction, steam_id: str):
     steam_id = steam_id.strip()
 
     # Validar que sea un Steam ID válido (17 dígitos numéricos)
     if not steam_id.isdigit() or len(steam_id) != 17:
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title="❌ Steam ID inválido",
             description=(
                 "El Steam ID debe ser de 17 dígitos numéricos.\n\n"
@@ -33,7 +33,7 @@ async def cmd_register(interaction: discord.Interaction, steam_id: str):
         row = cur.fetchone()
 
     if not row:
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title="❌ Jugador no encontrado",
             description=(
                 f"El Steam ID `{steam_id}` no tiene partidas registradas en el servidor.\n\n"
@@ -54,7 +54,7 @@ async def cmd_register(interaction: discord.Interaction, steam_id: str):
         player_id=player_id,
     )
 
-    embed = discord.Embed(
+    embed = notifications.Embed(
         title="✅ Registro exitoso" if is_new else "🔄 Registro actualizado",
         description=f"Tu cuenta de Discord fue vinculada con **{player_name}**.",
         color=0x2ECC71,

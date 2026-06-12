@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 
-import discord
+import notifications
 
 from db.database import get_player_totals
 
@@ -17,7 +17,7 @@ def _country_flag(country: str | None) -> str:
     return ""
 
 
-async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
+async def cmd_leaderboard(interaction: notifications.Interaction, mes: bool = False):
     await interaction.response.defer()
 
     now   = datetime.now(TZ_UY)
@@ -60,7 +60,7 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
         players = [dict(row) for row in cur.fetchall()]
 
     if not players:
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title="⚠️ Sin datos",
             description=f"No hay partidas registradas para {label}.",
             color=0xF1C40F,
@@ -77,7 +77,7 @@ async def cmd_leaderboard(interaction: discord.Interaction, mes: bool = False):
             f"{p['total_kills']}K/{p['total_deaths']}D · KD **{kd}** · {p['matches_played']} partidas"
         )
 
-    embed = discord.Embed(
+    embed = notifications.Embed(
         title=f"🏆 Top 20 — Kills — {label}",
         description="\n".join(lines),
         color=0x5865F2,

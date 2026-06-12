@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 
-import discord
+import notifications
 
 from db.database import get_top_by_weapon
 
@@ -17,7 +17,7 @@ def _country_flag(country: str | None) -> str:
     return ""
 
 
-async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
+async def cmd_weapon(interaction: notifications.Interaction, weapon_name: str):
     await interaction.response.defer()
 
     year = datetime.now(TZ_UY).year
@@ -37,7 +37,7 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
             """, (f"%{weapon_name}%",))
             suggestions = [row[0] for row in cur.fetchall()]
 
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title=f"❌ Arma no encontrada: `{weapon_name}`",
             color=0xE74C3C,
         )
@@ -60,7 +60,7 @@ async def cmd_weapon(interaction: discord.Interaction, weapon_name: str):
             f"**{p['weapon_kills']}** kills · {p['matches_played']} partidas"
         )
 
-    embed = discord.Embed(
+    embed = notifications.Embed(
         title=f"🔫 Top 20 — {weapon_upper} — Año {year}",
         description="\n".join(lines),
         color=0x5865F2,

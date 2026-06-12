@@ -33,7 +33,7 @@ def cmd_init_db(_args):
 def cmd_collect(args):
     from datetime import datetime, timezone, timedelta
     from collectors.history_collector import collect_history
-    from discord.webhook import send_collection_report
+    from notifications.webhook import send_collection_report
 
     # Ventana horaria: solo entre 15:00 y 03:00 Uruguay (UTC-3)
     TZ_UY = timezone(timedelta(hours=-3))
@@ -77,7 +77,7 @@ def cmd_report_top(args):
         get_top_kills_per_hour, get_top_score_tactical,
         get_top_score_combat, get_top_maps,
     )
-    from discord.webhook import (
+    from notifications.webhook import (
         send_top_players, send_top_hours, send_top_kd,
         send_top_efficiency, send_top_score_tactical,
         send_top_score_combat, send_top_maps,
@@ -196,7 +196,7 @@ def cmd_report_top(args):
 
 def cmd_post_match(args):
     from db.database import get_recent_matches, get_match_top_players
-    from discord.webhook import send_match_summary
+    from notifications.webhook import send_match_summary
 
     match_id = args.match_id
     matches  = get_recent_matches(limit=100)

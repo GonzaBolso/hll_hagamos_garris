@@ -1,8 +1,8 @@
-import discord
+import notifications
 
 
-async def cmd_help(interaction: discord.Interaction):
-    embed = discord.Embed(
+async def cmd_help(interaction: notifications.Interaction):
+    embed = notifications.Embed(
         title="📖 Comandos HLL Stats",
         description="Stats del servidor **[LATAM] Hagamos Garris**",
         color=0x5865F2,

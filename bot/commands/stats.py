@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone, timedelta
 
-import discord
+import notifications
 
 from db.database import (
     get_player_id_by_discord,
@@ -18,8 +18,8 @@ WEAPON_ICONS = {
 }
 
 
-def _not_registered_embed() -> discord.Embed:
-    return discord.Embed(
+def _not_registered_embed() -> notifications.Embed:
+    return notifications.Embed(
         title="❌ No estás registrado",
         description="Usá `/hll register <steam_id>` para vincular tu cuenta primero.",
         color=0xE74C3C,
@@ -32,7 +32,7 @@ def _country_flag(country: str | None) -> str:
     return ""
 
 
-async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
+async def cmd_stats_show(interaction: notifications.Interaction, mes: bool = False):
     await interaction.response.defer()
 
     player_id = get_player_id_by_discord(str(interaction.user.id))
@@ -47,7 +47,7 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
 
     stats = get_player_stats_full(player_id, year=year, month=month)
     if not stats:
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title="⚠️ Sin datos",
             description=f"No tenés partidas registradas para {label}.",
             color=0xF1C40F,
@@ -64,7 +64,7 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
     hours = float(stats.get("total_hours") or 0)
     kph   = round(stats["total_kills"] / hours, 2) if hours > 0 else 0
 
-    embed = discord.Embed(
+    embed = notifications.Embed(
         title=f"{flag}📊 Stats de {name} — {label}",
         color=0x5865F2,
     )
@@ -96,7 +96,7 @@ async def cmd_stats_show(interaction: discord.Interaction, mes: bool = False):
     await interaction.followup.send(embed=embed)
 
 
-async def cmd_stats_games(interaction: discord.Interaction):
+async def cmd_stats_games(interaction: notifications.Interaction):
     await interaction.response.defer()
 
     player_id = get_player_id_by_discord(str(interaction.user.id))
@@ -106,7 +106,7 @@ async def cmd_stats_games(interaction: discord.Interaction):
 
     games = get_player_recent_games(player_id, limit=5)
     if not games:
-        embed = discord.Embed(
+        embed = notifications.Embed(
             title="⚠️ Sin partidas",
             description="No tenés partidas registradas aún.",
             color=0xF1C40F,
@@ -114,7 +114,7 @@ async def cmd_stats_games(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed)
         return
 
-    embed = discord.Embed(
+    embed = notifications.Embed(
         title=f"🎮 Últimas 5 partidas",
         color=0x5865F2,
     )
