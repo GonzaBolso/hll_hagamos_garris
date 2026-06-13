@@ -253,8 +253,8 @@ def cmd_worker(_args):
 
         cmd_collect(_FakeArgs())
 
-        logger.info("Próximo ciclo en 60 minutos.")
-        time.sleep(60 * 60)
+        logger.info("Próximo ciclo en 30 minutos.")
+        time.sleep(30 * 60)
 
 
 def main():
